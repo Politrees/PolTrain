@@ -1,9 +1,20 @@
+import datetime
 import logging
 import os
 import sys
 import warnings
+import zipfile
+from random import randint
+from time import sleep
+from time import time as ttime
 
-os.environ["USE_LIBUV"] = "0" if os.name == "nt" else "1"
+import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.nn import functional as F
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 # Настройка уровня логирования для различных библиотек
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -19,37 +30,19 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 logger = logging.getLogger(__name__)
 
-now_dir = os.getcwd()
-sys.path.append(os.path.join(now_dir))
-
-import datetime
-import zipfile
-from random import randint
-from time import sleep
-from time import time as ttime
-
-import torch
-import torch.distributed as dist
-import torch.multiprocessing as mp
-from torch.amp import GradScaler, autocast
-from torch.nn import functional as F
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
-
+sys.path.append(os.path.join(os.getcwd()))
 from rvc.lib.algorithm.commons import grad_norm, slice_segments
 from rvc.lib.algorithm.discriminators import MultiPeriodDiscriminator
 from rvc.lib.algorithm.synthesizers import Synthesizer
-from rvc.train.data_utils import DistributedBucketSampler
-from rvc.train.data_utils import TextAudioCollateMultiNSFsid
-from rvc.train.data_utils import TextAudioLoaderMultiNSFsid
+from rvc.train.data_utils import DistributedBucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
 from rvc.train.extract.extract_model import extract_model
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
-from rvc.train.mel_processing import mel_spectrogram_torch, spec_to_mel_torch, MultiScaleMelSpectrogramLoss
+from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
 from rvc.train.utils import get_hparams, get_logger, latest_checkpoint_path, load_checkpoint, save_checkpoint, summarize
-from rvc.train.visualization import plot_spectrogram_to_numpy, plot_pitch_to_numpy, calculate_snr
+from rvc.train.visualization import plot_pitch_to_numpy, plot_spectrogram_to_numpy
 
 hps = get_hparams()
+os.environ["USE_LIBUV"] = "0" if os.name == "nt" else "1"
 os.environ["CUDA_VISIBLE_DEVICES"] = hps.gpus.replace("-", ",")
 n_gpus = len(hps.gpus.split("-"))
 
@@ -98,7 +91,7 @@ def main():
 
 def run(rank, n_gpus, hps, logger: logging.Logger):
     global global_step
-    
+
     writer_eval = None
     if rank == 0:
         writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval"))
@@ -257,12 +250,13 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
         )
 
         # Discriminator loss
-        y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
-        loss_disc, _, _ = discriminator_loss(y_d_hat_r, y_d_hat_g)
-        optim_d.zero_grad()
-        loss_disc.backward()
-        grad_norm_d = grad_norm(net_d.parameters())
-        optim_d.step()
+        for _ in range(1):  # default x1
+            y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
+            loss_disc, _, _ = discriminator_loss(y_d_hat_r, y_d_hat_g)
+            optim_d.zero_grad()
+            loss_disc.backward()
+            grad_norm_d = grad_norm(net_d.parameters())
+            optim_d.step()
 
         # Generator loss
         _, y_d_hat_g, fmap_r, fmap_g = net_d(wave, y_hat)
@@ -277,8 +271,8 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
         optim_g.step()
 
         # learning rates
-        current_lr_d = optim_d.param_groups[0]['lr']
-        current_lr_g = optim_g.param_groups[0]['lr']
+        current_lr_d = optim_d.param_groups[0]["lr"]
+        current_lr_g = optim_g.param_groups[0]["lr"]
 
         global_step += 1
 
@@ -334,8 +328,8 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
 
         if hps.save_to_zip == "True":
             zip_filename = os.path.join(hps.model_dir, f"{hps.name}.zip")
-            with zipfile.ZipFile(zip_filename, 'w') as zipf:
-                for ext in ('.pth', '.index'):
+            with zipfile.ZipFile(zip_filename, "w") as zipf:
+                for ext in (".pth", ".index"):
                     file_path = os.path.join(hps.model_dir, f"{hps.name}{ext}")
                     zipf.write(file_path, os.path.basename(file_path))
             logger.info(f"Файлы модели были заархивированы в `{zip_filename}`")
