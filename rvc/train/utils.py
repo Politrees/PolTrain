@@ -21,40 +21,38 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
     checkpoint_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
 
     saved_state_dict = checkpoint_dict["model"]
-    if hasattr(model, "module"):
-        state_dict = model.module.state_dict()
-    else:
-        state_dict = model.state_dict()
+    state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
+
     new_state_dict = {}
     for k, v in state_dict.items():
         try:
             new_state_dict[k] = saved_state_dict[k]
             if saved_state_dict[k].shape != state_dict[k].shape:
-                logger.warning(f"shape-{k}-mismatch|need-{state_dict[k].shape}|get-{saved_state_dict[k].shape}")
+                logger.warning(f"Несоответствие формы для {k}: нужно {state_dict[k].shape}, получено {saved_state_dict[k].shape}")
                 raise KeyError
         except:
-            logger.info(f"{k} is not in the checkpoint")
+            logger.info(f"Ключ {k} не найден в контрольной точке при использовании начальных весов")
             new_state_dict[k] = v
+
     if hasattr(model, "module"):
         model.module.load_state_dict(new_state_dict, strict=False)
     else:
         model.load_state_dict(new_state_dict, strict=False)
-    logger.info("Loaded model weights")
 
     iteration = checkpoint_dict["iteration"]
     learning_rate = checkpoint_dict["learning_rate"]
+
     if optimizer is not None and load_opt == 1:
         optimizer.load_state_dict(checkpoint_dict["optimizer"])
-    logger.info(f"Loaded checkpoint '{checkpoint_path}' (epoch {iteration})")
+
+    logger.info(f"Успешно загружена контрольная точка '{checkpoint_path}' (эпоха {iteration})")
     return model, optimizer, learning_rate, iteration
 
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path):
-    logger.info(f"Saving model and optimizer state at epoch {iteration} to {checkpoint_path}")
-    if hasattr(model, "module"):
-        state_dict = model.module.state_dict()
-    else:
-        state_dict = model.state_dict()
+    logger.info(f"Сохранение состояния модели и оптимизатора в '{checkpoint_path}' (эпоха {iteration})")
+
+    state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
     torch.save(
         {
             "model": state_dict,
