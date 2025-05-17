@@ -3,7 +3,6 @@ import logging
 import os
 import sys
 import warnings
-import zipfile
 from random import randint
 from time import sleep
 from time import time as ttime
@@ -299,45 +298,37 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
         }
         summarize(writer=writer, tracking=epoch, scalars=scalar_dict, images=image_dict)
 
-    if rank == 0 and epoch % hps.save_every_epoch == 0:
-        save_checkpoint(
-            net_g,
-            optim_g,
-            hps.train.learning_rate,
-            epoch,
-            os.path.join(hps.model_dir, "G_checkpoint.pth"),
-        )
-        save_checkpoint(
-            net_d,
-            optim_d,
-            hps.train.learning_rate,
-            epoch,
-            os.path.join(hps.model_dir, "D_checkpoint.pth"),
-        )
-
-        checkpoint = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
-        save_model = extract_model(hps, checkpoint, hps.name, epoch, global_step, hps.sample_rate, hps.model_dir, final_save=False)
-        logger.info(save_model)
-
     if rank == 0:
         logger.info(f"====> Эпоха: {epoch}/{hps.total_epoch} | Шаг: {global_step} | {epoch_recorder.record()}")
 
-    if rank == 0 and epoch >= hps.total_epoch:
-        checkpoint = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
-        save_model = extract_model(hps, checkpoint, hps.name, epoch, global_step, hps.sample_rate, hps.model_dir, final_save=True)
-        logger.info(save_model)
+        save_final = epoch >= hps.total_epoch
+        save_checkpoint_cond = (epoch % hps.save_every_epoch == 0) or save_final
 
-        if hps.save_to_zip == "True":
-            zip_filename = os.path.join(hps.model_dir, f"{hps.name}.zip")
-            with zipfile.ZipFile(zip_filename, "w") as zipf:
-                for ext in (".pth", ".index"):
-                    file_path = os.path.join(hps.model_dir, f"{hps.name}{ext}")
-                    zipf.write(file_path, os.path.basename(file_path))
-            logger.info(f"Файлы модели были заархивированы в `{zip_filename}`")
+        if save_checkpoint_cond:
+            # Сохраняем чекпоинты в любом случае (регулярное или финальное сохранение)
+            save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "G_checkpoint.pth"))
+            save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "D_checkpoint.pth"))
 
-        logger.info("Тренировка успешно завершена. Завершение программы...")
-        sleep(1)
-        os._exit(2333333)
+            # Определяем тип сохранения модели
+            checkpoint = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
+            save_model = extract_model(hps, checkpoint, hps.name, epoch, global_step, hps.sample_rate, hps.model_dir, final_save=save_final)
+            logger.info(save_model)
+
+        if save_final:
+            # Действия при завершении обучения
+            if hps.save_to_zip == "True":
+                zip_filename = os.path.join(hps.model_dir, f"{hps.name}.zip")
+
+                import zipfile
+                with zipfile.ZipFile(zip_filename, "w") as zipf:
+                    for ext in (".pth", ".index"):
+                        file_path = os.path.join(hps.model_dir, f"{hps.name}{ext}")
+                        zipf.write(file_path, os.path.basename(file_path))
+                logger.info(f"Файлы модели заархивированы в `{zip_filename}`")
+
+            logger.info("Обучение успешно завершено.")
+            sleep(1)
+            os._exit(2333333)
 
 
 if __name__ == "__main__":
