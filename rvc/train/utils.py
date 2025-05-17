@@ -50,7 +50,7 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
 
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path):
-    logger.info(f"Сохранение состояния модели и оптимизатора в '{checkpoint_path}' (эпоха {iteration})")
+    logger.info(f"Сохранение состояния модели в '{checkpoint_path}' (эпоха {iteration})")
 
     state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
     torch.save(
