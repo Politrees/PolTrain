@@ -282,11 +282,12 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
             "grad/norm_g": grad_norm_g,                                                     # Норма градиентов Генератора
             "learning_rate/d": current_lr_d,                                                # Скорость обучения Дискриминатора
             "learning_rate/g": current_lr_g,                                                # Скорость обучения Генератора
+            "loss/avg/d": loss_disc,                                                        # Потеря Дискриминатора
+            "loss/avg/g": loss_gen,                                                         # Потеря Генератора
             "loss/g/fm": loss_fm,                                                           # Потеря на основе совпадения признаков между реальными и сгенерированными данными
             "loss/g/mel": loss_mel,                                                         # Потеря на основе мел-спектрограммы
             "loss/g/kl": loss_kl,                                                           # Потеря на основе расхождения распределений в модели
-            "loss/total/d": loss_disc,                                                      # Общая потеря Дискриминатора
-            "loss/total/g": loss_gen_all,                                                   # Общая потеря Генератора
+            "loss/g/total": loss_gen_all,                                                   # Общая потеря Генератора
             "metrics/mse_wave": F.mse_loss(y_hat, wave),                                    # Среднеквадратичная ошибка между реальными и сгенерированными аудиосигналами
             "metrics/mse_pitch": F.mse_loss(pitchf, pitch),                                 # Среднеквадратичная ошибка между реальными и сгенерированными интонациями
         }
