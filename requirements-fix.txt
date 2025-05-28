@@ -16,4 +16,4 @@ torchaudio<2.6
 torchvision<0.21
 faiss-cpu==1.10.0
 fairseq; python_version < '3.11'
-https://github.com/Bebra777228/TrainVocModel-EN/releases/download/fixed-packages/fairseq-0.12.3-cp311-cp311-linux_x86_64.whl; python_version == '3.11'
+https://github.com/Politrees/PolTrain/releases/download/fixed-packages/fairseq-0.12.3-cp311-cp311-linux_x86_64.whl; python_version == '3.11'
