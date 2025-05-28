@@ -168,13 +168,13 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
         epoch_str = 1
         global_step = 0
 
-        if hps.pretrainG != "" and hps.pretrainG != "None":
+        if hps.pretrainG not in ("", "None"):
             if rank == 0:
                 logger.info(f"Загрузка претрейна {hps.pretrainG}")
             g_model = net_g.module if hasattr(net_g, "module") else net_g
             logger.info(g_model.load_state_dict(torch.load(hps.pretrainG, map_location="cpu", weights_only=True)["model"]))
 
-        if hps.pretrainD != "" and hps.pretrainD != "None":
+        if hps.pretrainD not in ("", "None"):
             if rank == 0:
                 logger.info(f"Загрузка претрейна {hps.pretrainD}")
             d_model = net_d.module if hasattr(net_d, "module") else net_d
