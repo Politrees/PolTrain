@@ -32,5 +32,5 @@ jobs:
         continue-on-error: true
 
       - name: Run Vulture
-        run: vulture . --verbose
+        run: vulture .
         continue-on-error: true
