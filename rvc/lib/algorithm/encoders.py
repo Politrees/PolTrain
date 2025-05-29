@@ -98,7 +98,6 @@ class TextEncoder(torch.nn.Module):
         kernel_size (int): Kernel size of the convolutional layers.
         p_dropout (float): Dropout probability.
         embedding_dim (int): Embedding dimension for phone embeddings (v1 = 256, v2 = 768).
-        f0 (bool, optional): Whether to use F0 embedding. Defaults to True.
     """
 
     def __init__(
@@ -111,14 +110,13 @@ class TextEncoder(torch.nn.Module):
         kernel_size: int,
         p_dropout: float,
         embedding_dim: int,
-        f0: bool = True,
     ):
         super().__init__()
         self.hidden_channels = hidden_channels
         self.out_channels = out_channels
         self.emb_phone = torch.nn.Linear(embedding_dim, hidden_channels)
         self.lrelu = torch.nn.LeakyReLU(0.1, inplace=True)
-        self.emb_pitch = torch.nn.Embedding(256, hidden_channels) if f0 else None
+        self.emb_pitch = torch.nn.Embedding(256, hidden_channels)
 
         self.encoder = Encoder(
             hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout

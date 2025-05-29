@@ -127,7 +127,6 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
         hps.data.filter_length // 2 + 1,
         hps.train.segment_size // hps.data.hop_length,
         **hps.model,
-        use_f0=True,
         sr=hps.sample_rate,
         vocoder=hps.vocoder,
         checkpointing=False,
