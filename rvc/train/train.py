@@ -129,7 +129,7 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
         **hps.model,
         use_f0=True,
         sr=hps.sample_rate,
-        vocoder="HiFi-GAN",
+        vocoder=hps.vocoder,
         checkpointing=False,
         randomized=True,
     )
@@ -311,7 +311,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
 
             # Определяем тип сохранения модели
             checkpoint = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
-            save_model = extract_model(hps, checkpoint, hps.name, epoch, global_step, hps.sample_rate, hps.model_dir, final_save=save_final)
+            save_model = extract_model(hps, checkpoint, hps.name, epoch, global_step, hps.sample_rate, hps.model_dir, hps.vocoder, final_save=save_final)
             logger.info(save_model)
 
         if save_final:

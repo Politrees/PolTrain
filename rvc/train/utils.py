@@ -100,6 +100,7 @@ def get_hparams(init=True):
     parser.add_argument("-m", "--model_name", type=str, required=True)
     parser.add_argument("-sr", "--sample_rate", type=str, required=True)
     parser.add_argument("-sz", "--save_to_zip", type=str, required=True)
+    parser.add_argument("-voc", "--vocoder", type=str, default="HiFi-GAN")
 
     args = parser.parse_args()
     name = args.model_name
@@ -120,6 +121,7 @@ def get_hparams(init=True):
     hparams.batch_size = args.batch_size
     hparams.sample_rate = args.sample_rate
     hparams.save_to_zip = args.save_to_zip
+    hparams.vocoder = args.vocoder
     hparams.data.training_files = f"{experiment_dir}/data/filelist.txt"
     return hparams
 

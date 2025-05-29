@@ -5,7 +5,7 @@ from collections import OrderedDict
 import torch
 
 
-def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, final_save):
+def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder, final_save):
     weights_dir = os.path.join(model_dir, "weights")
     os.makedirs(weights_dir, exist_ok=True)
 
@@ -51,7 +51,7 @@ def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, final_sa
         opt["sr"] = sample_rate
         opt["f0"] = True
         opt["version"] = "v2"
-        # opt["vocoder"] = vocoder
+        opt["vocoder"] = vocoder
 
         # Дополнительные метаданные
         opt["learning_environment"] = "PolTrain"
