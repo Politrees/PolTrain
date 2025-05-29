@@ -55,8 +55,8 @@ def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder,
 
         # Дополнительные метаданные
         opt["learning_environment"] = "PolTrain"
-        # opt["dataset_size"] = 
-        # opt["fragments_data"] = 
+        # opt["dataset_size"] =
+        # opt["fragments_data"] =
 
         torch.save(opt, filepath)
 

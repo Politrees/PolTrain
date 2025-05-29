@@ -39,9 +39,7 @@ class SourceModuleHnNSF(torch.nn.Module):
         self.sine_amp = sine_amp
         self.noise_std = add_noise_std
 
-        self.l_sin_gen = SineGenerator(
-            sample_rate, harmonic_num, sine_amp, add_noise_std, voiced_threshod
-        )
+        self.l_sin_gen = SineGenerator(sample_rate, harmonic_num, sine_amp, add_noise_std, voiced_threshod)
         self.l_linear = torch.nn.Linear(harmonic_num + 1, 1)
         self.l_tanh = torch.nn.Tanh()
 
@@ -92,21 +90,13 @@ class HiFiGANNSFGenerator(torch.nn.Module):
         self.f0_upsamp = torch.nn.Upsample(scale_factor=math.prod(upsample_rates))
         self.m_source = SourceModuleHnNSF(sample_rate=sr, harmonic_num=0)
 
-        self.conv_pre = torch.nn.Conv1d(
-            initial_channel, upsample_initial_channel, 7, 1, padding=3
-        )
+        self.conv_pre = torch.nn.Conv1d(initial_channel, upsample_initial_channel, 7, 1, padding=3)
 
         self.ups = torch.nn.ModuleList()
         self.noise_convs = torch.nn.ModuleList()
 
-        channels = [
-            upsample_initial_channel // (2 ** (i + 1))
-            for i in range(len(upsample_rates))
-        ]
-        stride_f0s = [
-            math.prod(upsample_rates[i + 1 :]) if i + 1 < len(upsample_rates) else 1
-            for i in range(len(upsample_rates))
-        ]
+        channels = [upsample_initial_channel // (2 ** (i + 1)) for i in range(len(upsample_rates))]
+        stride_f0s = [math.prod(upsample_rates[i + 1 :]) if i + 1 < len(upsample_rates) else 1 for i in range(len(upsample_rates))]
 
         for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
             # handling odd upsampling rates
@@ -154,11 +144,7 @@ class HiFiGANNSFGenerator(torch.nn.Module):
             )
 
         self.resblocks = torch.nn.ModuleList(
-            [
-                ResBlock(channels[i], k, d)
-                for i in range(len(self.ups))
-                for k, d in zip(resblock_kernel_sizes, resblock_dilation_sizes)
-            ]
+            [ResBlock(channels[i], k, d) for i in range(len(self.ups)) for k, d in zip(resblock_kernel_sizes, resblock_dilation_sizes)]
         )
 
         self.conv_post = torch.nn.Conv1d(channels[-1], 1, 7, 1, padding=3, bias=False)
@@ -170,9 +156,7 @@ class HiFiGANNSFGenerator(torch.nn.Module):
         self.upp = math.prod(upsample_rates)
         self.lrelu_slope = LRELU_SLOPE
 
-    def forward(
-        self, x: torch.Tensor, f0: torch.Tensor, g: Optional[torch.Tensor] = None
-    ):
+    def forward(self, x: torch.Tensor, f0: torch.Tensor, g: Optional[torch.Tensor] = None):
         har_source, _, _ = self.m_source(f0, self.upp)
         har_source = har_source.transpose(1, 2)
         # new tensor
@@ -220,16 +204,10 @@ class HiFiGANNSFGenerator(torch.nn.Module):
     def __prepare_scriptable__(self):
         for l in self.ups:
             for hook in l._forward_pre_hooks.values():
-                if (
-                    hook.__module__ == "torch.nn.utils.parametrizations.weight_norm"
-                    and hook.__class__.__name__ == "WeightNorm"
-                ):
+                if hook.__module__ == "torch.nn.utils.parametrizations.weight_norm" and hook.__class__.__name__ == "WeightNorm":
                     remove_weight_norm(l)
         for l in self.resblocks:
             for hook in l._forward_pre_hooks.values():
-                if (
-                    hook.__module__ == "torch.nn.utils.parametrizations.weight_norm"
-                    and hook.__class__.__name__ == "WeightNorm"
-                ):
+                if hook.__module__ == "torch.nn.utils.parametrizations.weight_norm" and hook.__class__.__name__ == "WeightNorm":
                     remove_weight_norm(l)
         return self

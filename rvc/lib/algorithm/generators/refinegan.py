@@ -1,13 +1,14 @@
 import math
+
 import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.nn.utils.parametrizations import weight_norm
 from torch.nn.utils import remove_weight_norm
+from torch.nn.utils.parametrizations import weight_norm
 from torch.utils.checkpoint import checkpoint
 
-from rvc.lib.algorithm.commons import init_weights, get_padding
+from rvc.lib.algorithm.commons import get_padding, init_weights
 
 
 class ResBlock(nn.Module):
@@ -228,9 +229,7 @@ class SineGenerator(nn.Module):
         rad_values = (f0_values / self.sampling_rate) % 1
 
         # initial phase noise (no noise for fundamental component)
-        rand_ini = torch.rand(
-            f0_values.shape[0], f0_values.shape[2], device=f0_values.device
-        )
+        rand_ini = torch.rand(f0_values.shape[0], f0_values.shape[2], device=f0_values.device)
         rand_ini[:, 0] = 0
         rad_values[:, 0, :] = rad_values[:, 0, :] + rand_ini
 
@@ -316,10 +315,7 @@ class RefineGANGenerator(nn.Module):
             )
         )
 
-        stride_f0s = [
-            math.prod(upsample_rates[i + 1 :]) if i + 1 < len(upsample_rates) else 1
-            for i in range(len(upsample_rates))
-        ]
+        stride_f0s = [math.prod(upsample_rates[i + 1 :]) if i + 1 < len(upsample_rates) else 1 for i in range(len(upsample_rates))]
 
         channels = upsample_initial_channel
 
@@ -379,16 +375,12 @@ class RefineGANGenerator(nn.Module):
 
             channels = new_channels
 
-        self.conv_post = weight_norm(
-            nn.Conv1d(channels, 1, 7, 1, padding=3, bias=False)
-        )
+        self.conv_post = weight_norm(nn.Conv1d(channels, 1, 7, 1, padding=3, bias=False))
         self.conv_post.apply(init_weights)
 
     def forward(self, mel: torch.Tensor, f0: torch.Tensor, g: torch.Tensor = None):
 
-        f0 = F.interpolate(
-            f0.unsqueeze(1), size=mel.shape[-1] * self.upp, mode="linear"
-        )
+        f0 = F.interpolate(f0.unsqueeze(1), size=mel.shape[-1] * self.upp, mode="linear")
         har_source = self.m_source(f0.transpose(1, 2)).transpose(1, 2)
 
         x = self.pre_conv(har_source)

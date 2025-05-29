@@ -19,8 +19,6 @@ class LayerNorm(torch.nn.Module):
     def forward(self, x):
         # Transpose to (batch_size, time_steps, channels) for layer_norm
         x = x.transpose(1, -1)
-        x = torch.nn.functional.layer_norm(
-            x, (x.size(-1),), self.gamma, self.beta, self.eps
-        )
+        x = torch.nn.functional.layer_norm(x, (x.size(-1),), self.gamma, self.beta, self.eps)
         # Transpose back to (batch_size, channels, time_steps)
         return x.transpose(1, -1)

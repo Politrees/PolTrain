@@ -1,11 +1,12 @@
-import torch
-import numpy as np
-from torch.nn.utils import remove_weight_norm
-from torch.nn.utils.parametrizations import weight_norm
 from typing import Optional
 
-from rvc.lib.algorithm.residuals import LRELU_SLOPE, ResBlock
+import numpy as np
+import torch
+from torch.nn.utils import remove_weight_norm
+from torch.nn.utils.parametrizations import weight_norm
+
 from rvc.lib.algorithm.commons import init_weights
+from rvc.lib.algorithm.residuals import LRELU_SLOPE, ResBlock
 
 
 class HiFiGANGenerator(torch.nn.Module):
@@ -39,9 +40,7 @@ class HiFiGANGenerator(torch.nn.Module):
         super(HiFiGANGenerator, self).__init__()
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
-        self.conv_pre = torch.nn.Conv1d(
-            initial_channel, upsample_initial_channel, 7, 1, padding=3
-        )
+        self.conv_pre = torch.nn.Conv1d(initial_channel, upsample_initial_channel, 7, 1, padding=3)
 
         self.ups = torch.nn.ModuleList()
         self.resblocks = torch.nn.ModuleList()
@@ -59,9 +58,7 @@ class HiFiGANGenerator(torch.nn.Module):
                 )
             )
             ch = upsample_initial_channel // (2 ** (i + 1))
-            for j, (k, d) in enumerate(
-                zip(resblock_kernel_sizes, resblock_dilation_sizes)
-            ):
+            for j, (k, d) in enumerate(zip(resblock_kernel_sizes, resblock_dilation_sizes)):
                 self.resblocks.append(ResBlock(ch, k, d))
 
         self.conv_post = torch.nn.Conv1d(ch, 1, 7, 1, padding=3, bias=False)
@@ -98,10 +95,7 @@ class HiFiGANGenerator(torch.nn.Module):
     def __prepare_scriptable__(self):
         for l in self.ups_and_resblocks:
             for hook in l._forward_pre_hooks.values():
-                if (
-                    hook.__module__ == "torch.nn.utils.parametrizations.weight_norm"
-                    and hook.__class__.__name__ == "WeightNorm"
-                ):
+                if hook.__module__ == "torch.nn.utils.parametrizations.weight_norm" and hook.__class__.__name__ == "WeightNorm":
                     torch.nn.utils.remove_weight_norm(l)
         return self
 
@@ -164,25 +158,19 @@ class SineGenerator(torch.nn.Module):
         batch_size, length, _ = f0.shape
 
         # Create an upsampling grid
-        upsampling_grid = torch.arange(
-            1, upsampling_factor + 1, dtype=f0.dtype, device=f0.device
-        )
+        upsampling_grid = torch.arange(1, upsampling_factor + 1, dtype=f0.dtype, device=f0.device)
 
         # Calculate phase increments
         phase_increments = (f0 / self.sampling_rate) * upsampling_grid
         phase_remainder = torch.fmod(phase_increments[:, :-1, -1:] + 0.5, 1.0) - 0.5
         cumulative_phase = phase_remainder.cumsum(dim=1).fmod(1.0).to(f0.dtype)
-        phase_increments += torch.nn.functional.pad(
-            cumulative_phase, (0, 0, 1, 0), mode="constant"
-        )
+        phase_increments += torch.nn.functional.pad(cumulative_phase, (0, 0, 1, 0), mode="constant")
 
         # Reshape to match the sine wave shape
         phase_increments = phase_increments.reshape(batch_size, -1, 1)
 
         # Scale for harmonics
-        harmonic_scale = torch.arange(
-            1, self.waveform_dim + 1, dtype=f0.dtype, device=f0.device
-        ).reshape(1, 1, -1)
+        harmonic_scale = torch.arange(1, self.waveform_dim + 1, dtype=f0.dtype, device=f0.device).reshape(1, 1, -1)
         phase_increments *= harmonic_scale
 
         # Add random phase offset (except for the fundamental)
@@ -200,9 +188,7 @@ class SineGenerator(torch.nn.Module):
             f0 = f0.unsqueeze(-1)
 
             # Generate sine waves
-            sine_waves = (
-                self._generate_sine_wave(f0, upsampling_factor) * self.sine_amplitude
-            )
+            sine_waves = self._generate_sine_wave(f0, upsampling_factor) * self.sine_amplitude
 
             # Compute voiced/unvoiced mask
             voiced_mask = self._compute_voiced_unvoiced(f0)
@@ -215,9 +201,7 @@ class SineGenerator(torch.nn.Module):
             ).transpose(2, 1)
 
             # Compute noise amplitude
-            noise_amplitude = voiced_mask * self.noise_stddev + (1 - voiced_mask) * (
-                self.sine_amplitude / 3
-            )
+            noise_amplitude = voiced_mask * self.noise_stddev + (1 - voiced_mask) * (self.sine_amplitude / 3)
 
             # Add Gaussian noise
             noise = noise_amplitude * torch.randn_like(sine_waves)

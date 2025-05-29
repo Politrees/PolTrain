@@ -1,11 +1,12 @@
-import torch
 from itertools import chain
 from typing import Optional, Tuple
+
+import torch
 from torch.nn.utils import remove_weight_norm
 from torch.nn.utils.parametrizations import weight_norm
 
-from rvc.lib.algorithm.modules import WaveNet
 from rvc.lib.algorithm.commons import get_padding, init_weights
+from rvc.lib.algorithm.modules import WaveNet
 
 LRELU_SLOPE = 0.1
 
@@ -36,9 +37,7 @@ class ResBlock(torch.nn.Module):
     A residual block module that applies a series of 1D convolutional layers with residual connections.
     """
 
-    def __init__(
-        self, channels: int, kernel_size: int = 3, dilations: Tuple[int] = (1, 3, 5)
-    ):
+    def __init__(self, channels: int, kernel_size: int = 3, dilations: Tuple[int] = (1, 3, 5)):
         """
         Initializes the ResBlock.
 
@@ -62,9 +61,7 @@ class ResBlock(torch.nn.Module):
             kernel_size (int): Size of the convolution kernel.
             dilations (Tuple[int]): Tuple of dilation rates for each convolution layer.
         """
-        layers = torch.nn.ModuleList(
-            [create_conv1d_layer(channels, kernel_size, d) for d in dilations]
-        )
+        layers = torch.nn.ModuleList([create_conv1d_layer(channels, kernel_size, d) for d in dilations])
         layers.apply(init_weights)
         return layers
 
@@ -170,10 +167,7 @@ class ResidualCouplingBlock(torch.nn.Module):
     def __prepare_scriptable__(self):
         for i in range(self.n_flows):
             for hook in self.flows[i * 2]._forward_pre_hooks.values():
-                if (
-                    hook.__module__ == "torch.nn.utils.parametrizations.weight_norm"
-                    and hook.__class__.__name__ == "WeightNorm"
-                ):
+                if hook.__module__ == "torch.nn.utils.parametrizations.weight_norm" and hook.__class__.__name__ == "WeightNorm":
                     torch.nn.utils.remove_weight_norm(self.flows[i * 2])
 
         return self
@@ -224,9 +218,7 @@ class ResidualCouplingLayer(torch.nn.Module):
             p_dropout=p_dropout,
             gin_channels=gin_channels,
         )
-        self.post = torch.nn.Conv1d(
-            hidden_channels, self.half_channels * (2 - mean_only), 1
-        )
+        self.post = torch.nn.Conv1d(hidden_channels, self.half_channels * (2 - mean_only), 1)
         self.post.weight.data.zero_()
         self.post.bias.data.zero_()
 

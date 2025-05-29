@@ -36,11 +36,7 @@ class MRFLayer(torch.nn.Module):
                 dilation=dilation,
             )
         )
-        self.conv2 = weight_norm(
-            torch.nn.Conv1d(
-                channels, channels, kernel_size, padding=kernel_size // 2, dilation=1
-            )
-        )
+        self.conv2 = weight_norm(torch.nn.Conv1d(channels, channels, kernel_size, padding=kernel_size // 2, dilation=1))
 
     def forward(self, x: torch.Tensor):
         y = torch.nn.functional.leaky_relu(x, LRELU_SLOPE)
@@ -140,9 +136,7 @@ class SineGenerator(torch.nn.Module):
         rad_values = (f0_values / self.sampling_rate) % 1
 
         # initial phase noise (no noise for fundamental component)
-        rand_ini = torch.rand(
-            f0_values.shape[0], f0_values.shape[2], device=f0_values.device
-        )
+        rand_ini = torch.rand(f0_values.shape[0], f0_values.shape[2], device=f0_values.device)
         rand_ini[:, 0] = 0
         rad_values[:, 0, :] = rad_values[:, 0, :] + rand_ini
 
@@ -204,9 +198,7 @@ class SourceModuleHnNSF(torch.nn.Module):
         self.noise_std = add_noise_std
 
         # to produce sine waveforms
-        self.l_sin_gen = SineGenerator(
-            sampling_rate, harmonic_num, sine_amp, add_noise_std, voiced_threshold
-        )
+        self.l_sin_gen = SineGenerator(sampling_rate, harmonic_num, sine_amp, add_noise_std, voiced_threshold)
 
         # to merge source harmonics into a single excitation
         self.l_linear = torch.nn.Linear(harmonic_num + 1, 1)
@@ -262,18 +254,11 @@ class HiFiGANMRFGenerator(torch.nn.Module):
         self.f0_upsample = torch.nn.Upsample(scale_factor=np.prod(upsample_rates))
         self.m_source = SourceModuleHnNSF(sample_rate, harmonic_num)
 
-        self.conv_pre = weight_norm(
-            torch.nn.Conv1d(
-                in_channel, upsample_initial_channel, kernel_size=7, stride=1, padding=3
-            )
-        )
+        self.conv_pre = weight_norm(torch.nn.Conv1d(in_channel, upsample_initial_channel, kernel_size=7, stride=1, padding=3))
         self.upsamples = torch.nn.ModuleList()
         self.noise_convs = torch.nn.ModuleList()
 
-        stride_f0s = [
-            math.prod(upsample_rates[i + 1 :]) if i + 1 < len(upsample_rates) else 1
-            for i in range(len(upsample_rates))
-        ]
+        stride_f0s = [math.prod(upsample_rates[i + 1 :]) if i + 1 < len(upsample_rates) else 1 for i in range(len(upsample_rates))]
 
         for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
             # handling odd upsampling rates
@@ -324,21 +309,14 @@ class HiFiGANMRFGenerator(torch.nn.Module):
             channel = upsample_initial_channel // (2 ** (i + 1))
             self.mrfs.append(
                 torch.nn.ModuleList(
-                    [
-                        MRFBlock(channel, kernel_size=k, dilations=d)
-                        for k, d in zip(resblock_kernel_sizes, resblock_dilations)
-                    ]
+                    [MRFBlock(channel, kernel_size=k, dilations=d) for k, d in zip(resblock_kernel_sizes, resblock_dilations)]
                 )
             )
-        self.conv_post = weight_norm(
-            torch.nn.Conv1d(channel, 1, kernel_size=7, stride=1, padding=3)
-        )
+        self.conv_post = weight_norm(torch.nn.Conv1d(channel, 1, kernel_size=7, stride=1, padding=3))
         if gin_channels != 0:
             self.cond = torch.nn.Conv1d(gin_channels, upsample_initial_channel, 1)
 
-    def forward(
-        self, x: torch.Tensor, f0: torch.Tensor, g: Optional[torch.Tensor] = None
-    ):
+    def forward(self, x: torch.Tensor, f0: torch.Tensor, g: Optional[torch.Tensor] = None):
         f0 = self.f0_upsample(f0[:, None, :]).transpose(-1, -2)
         har_source, _, _ = self.m_source(f0)
         har_source = har_source.transpose(-1, -2)
