@@ -3,16 +3,16 @@ import os
 import sys
 import traceback
 import warnings
-from tqdm import tqdm
 
 import fairseq
 import numpy as np
 import soundfile as sf
 import torch
 import torch.nn.functional as F
+from tqdm import tqdm
 
 # Отключаем мусорное логирование
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 logging.getLogger("fairseq").setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -34,11 +34,13 @@ else:
 
 f = open(f"{exp_dir}/logfile.log", "a+")
 
+
 # Функция для вывода и записи в лог
 def printt(strr):
     print(strr)
     f.write(f"{strr}\n")
     f.flush()
+
 
 # Путь к модели HuBERT
 model_path = "assets/hubert/hubert_base.pt"
@@ -47,6 +49,7 @@ model_path = "assets/hubert/hubert_base.pt"
 wavPath = f"{exp_dir}/data/sliced_audios_16k"
 outPath = f"{exp_dir}/data/features"
 os.makedirs(outPath, exist_ok=True)
+
 
 # Функция для чтения аудиофайла и преобразования его в тензор
 def readwave(wav_path):
@@ -59,9 +62,12 @@ def readwave(wav_path):
     feats = feats.view(1, -1)  # Добавляем размерность батча
     return feats
 
+
 # Проверяем, существует ли модель
 if os.access(model_path, os.F_OK) == False:
-    raise FileNotFoundError(f"Error: Extracting is shut down because {model_path} does not exist, you may download it from https://huggingface.co/lj1995/VoiceConversionWebUI/tree/main")
+    raise FileNotFoundError(
+        f"Error: Extracting is shut down because {model_path} does not exist, you may download it from https://huggingface.co/lj1995/VoiceConversionWebUI/tree/main"
+    )
 
 # Загружаем модель HuBERT
 models, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task([model_path], suffix="")

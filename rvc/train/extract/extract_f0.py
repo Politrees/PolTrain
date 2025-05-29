@@ -2,9 +2,9 @@ import logging
 import os
 import sys
 import traceback
-from tqdm import tqdm
 
 import numpy as np
+from tqdm import tqdm
 
 sys.path.append(os.getcwd())
 
@@ -22,11 +22,13 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 f = open(f"{exp_dir}/logfile.log", "a+")
 
+
 # Функция для вывода и записи в лог
 def printt(strr):
     print(strr)
     f.write(f"{strr}\n")
     f.flush()
+
 
 # Класс для извлечения и обработки F0
 class FeatureInput(object):
@@ -95,6 +97,7 @@ class FeatureInput(object):
                     np.save(opt_path1, coarse_pit, allow_pickle=False)  # Сохранение квантованного F0
                 except:
                     raise RuntimeError(f"Ошибка извлечения тона!\nФрагмент - {idx}\nФайл - {inp_path}\n{traceback.format_exc()}")
+
 
 # Основной блок выполнения
 if __name__ == "__main__":

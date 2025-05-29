@@ -1,6 +1,7 @@
 import librosa
 import soundfile as sf
 
+
 def load_audio(file, sample_rate):
     try:
         file = file.strip(" ").strip('"').strip("\n").strip('"').strip(" ")

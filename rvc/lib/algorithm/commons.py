@@ -1,5 +1,6 @@
-import torch
 from typing import Optional
+
+import torch
 
 
 def init_weights(m, mean=0.0, std=0.01):
@@ -39,9 +40,7 @@ def convert_pad_shape(pad_shape):
     return pad_shape
 
 
-def slice_segments(
-    x: torch.Tensor, ids_str: torch.Tensor, segment_size: int = 4, dim: int = 2
-):
+def slice_segments(x: torch.Tensor, ids_str: torch.Tensor, segment_size: int = 4, dim: int = 2):
     """
     Slice segments from a tensor, handling tensors with different numbers of dimensions.
 
@@ -133,6 +132,4 @@ def grad_norm(parameters, norm_type: float = 2.0):
     if not parameters:
         return 0.0
 
-    return torch.linalg.vector_norm(
-        torch.stack([p.grad.norm(norm_type) for p in parameters]), ord=norm_type
-    ).item()
+    return torch.linalg.vector_norm(torch.stack([p.grad.norm(norm_type) for p in parameters]), ord=norm_type).item()

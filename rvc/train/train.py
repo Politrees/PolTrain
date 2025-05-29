@@ -183,17 +183,7 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
     scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
 
     for epoch in range(epoch_str, hps.total_epoch + 1):
-        train_and_evaluate(
-            hps,
-            rank,
-            epoch,
-            [net_g, net_d],
-            [optim_g, optim_d],
-            [train_loader, None],
-            logger,
-            [writer_eval],
-            fn_mel_loss
-        )
+        train_and_evaluate(hps, rank, epoch, [net_g, net_d], [optim_g, optim_d], [train_loader, None], logger, [writer_eval], fn_mel_loss)
         scheduler_g.step()
         scheduler_d.step()
 
@@ -276,24 +266,24 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
 
     if rank == 0 and epoch % hps.train.log_interval == 0:
         scalar_dict = {
-            "grad/norm_d": grad_norm_d,                                                     # Норма градиентов Дискриминатора
-            "grad/norm_g": grad_norm_g,                                                     # Норма градиентов Генератора
-            "learning_rate/d": current_lr_d,                                                # Скорость обучения Дискриминатора
-            "learning_rate/g": current_lr_g,                                                # Скорость обучения Генератора
-            "loss/avg/d": loss_disc,                                                        # Потеря Дискриминатора
-            "loss/avg/g": loss_gen,                                                         # Потеря Генератора
-            "loss/g/fm": loss_fm,                                                           # Потеря на основе совпадения признаков между реальными и сгенерированными данными
-            "loss/g/mel": loss_mel,                                                         # Потеря на основе мел-спектрограммы
-            "loss/g/kl": loss_kl,                                                           # Потеря на основе расхождения распределений в модели
-            "loss/g/total": loss_gen_all,                                                   # Общая потеря Генератора
-            "metrics/mse_wave": F.mse_loss(y_hat, wave),                                    # Среднеквадратичная ошибка между реальными и сгенерированными аудиосигналами
-            "metrics/mse_pitch": F.mse_loss(pitchf, pitch),                                 # Среднеквадратичная ошибка между реальными и сгенерированными интонациями
+            "grad/norm_d": grad_norm_d,  # Норма градиентов Дискриминатора
+            "grad/norm_g": grad_norm_g,  # Норма градиентов Генератора
+            "learning_rate/d": current_lr_d,  # Скорость обучения Дискриминатора
+            "learning_rate/g": current_lr_g,  # Скорость обучения Генератора
+            "loss/avg/d": loss_disc,  # Потеря Дискриминатора
+            "loss/avg/g": loss_gen,  # Потеря Генератора
+            "loss/g/fm": loss_fm,  # Потеря на основе совпадения признаков между реальными и сгенерированными данными
+            "loss/g/mel": loss_mel,  # Потеря на основе мел-спектрограммы
+            "loss/g/kl": loss_kl,  # Потеря на основе расхождения распределений в модели
+            "loss/g/total": loss_gen_all,  # Общая потеря Генератора
+            "metrics/mse_wave": F.mse_loss(y_hat, wave),  # Среднеквадратичная ошибка между реальными и сгенерированными аудиосигналами
+            "metrics/mse_pitch": F.mse_loss(pitchf, pitch),  # Среднеквадратичная ошибка между реальными и сгенерированными интонациями
         }
         image_dict = {
-            "mel/slice/real": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),       # Мел-спектрограмма реальных данных
-            "mel/slice/fake": plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),   # Мел-спектрограмма сгенерированных данных
-            "pitch/real": plot_pitch_to_numpy(pitch[0].data.cpu().numpy()),                 # Интонация реальных данных
-            "pitch/fake": plot_pitch_to_numpy(pitchf[0].data.cpu().numpy()),                # Интонация сгенерированных данных
+            "mel/slice/real": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),  # Мел-спектрограмма реальных данных
+            "mel/slice/fake": plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),  # Мел-спектрограмма сгенерированных данных
+            "pitch/real": plot_pitch_to_numpy(pitch[0].data.cpu().numpy()),  # Интонация реальных данных
+            "pitch/fake": plot_pitch_to_numpy(pitchf[0].data.cpu().numpy()),  # Интонация сгенерированных данных
         }
         summarize(writer=writer, tracking=epoch, scalars=scalar_dict, images=image_dict)
 
@@ -310,7 +300,9 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
 
             # Определяем тип сохранения модели
             checkpoint = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
-            save_model = extract_model(hps, checkpoint, hps.name, epoch, global_step, hps.sample_rate, hps.model_dir, hps.vocoder, final_save=save_final)
+            save_model = extract_model(
+                hps, checkpoint, hps.name, epoch, global_step, hps.sample_rate, hps.model_dir, hps.vocoder, final_save=save_final
+            )
             logger.info(save_model)
 
         if save_final:
@@ -319,6 +311,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
                 zip_filename = os.path.join(hps.model_dir, f"{hps.name}.zip")
 
                 import zipfile
+
                 with zipfile.ZipFile(zip_filename, "w") as zipf:
                     for ext in (".pth", ".index"):
                         file_path = os.path.join(hps.model_dir, f"{hps.name}{ext}")

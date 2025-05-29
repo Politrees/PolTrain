@@ -1,11 +1,12 @@
 import math
-import torch
 from typing import Optional
 
+import torch
+
+from rvc.lib.algorithm.attentions import FFN, MultiHeadAttention
 from rvc.lib.algorithm.commons import sequence_mask
 from rvc.lib.algorithm.modules import WaveNet
 from rvc.lib.algorithm.normalization import LayerNorm
-from rvc.lib.algorithm.attentions import FFN, MultiHeadAttention
 
 
 class Encoder(torch.nn.Module):
@@ -50,9 +51,7 @@ class Encoder(torch.nn.Module):
                 for _ in range(n_layers)
             ]
         )
-        self.norm_layers_1 = torch.nn.ModuleList(
-            [LayerNorm(hidden_channels) for _ in range(n_layers)]
-        )
+        self.norm_layers_1 = torch.nn.ModuleList([LayerNorm(hidden_channels) for _ in range(n_layers)])
         self.ffn_layers = torch.nn.ModuleList(
             [
                 FFN(
@@ -65,9 +64,7 @@ class Encoder(torch.nn.Module):
                 for _ in range(n_layers)
             ]
         )
-        self.norm_layers_2 = torch.nn.ModuleList(
-            [LayerNorm(hidden_channels) for _ in range(n_layers)]
-        )
+        self.norm_layers_2 = torch.nn.ModuleList([LayerNorm(hidden_channels) for _ in range(n_layers)])
 
     def forward(self, x, x_mask):
         attn_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
@@ -118,14 +115,10 @@ class TextEncoder(torch.nn.Module):
         self.lrelu = torch.nn.LeakyReLU(0.1, inplace=True)
         self.emb_pitch = torch.nn.Embedding(256, hidden_channels)
 
-        self.encoder = Encoder(
-            hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout
-        )
+        self.encoder = Encoder(hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout)
         self.proj = torch.nn.Conv1d(hidden_channels, out_channels * 2, 1)
 
-    def forward(
-        self, phone: torch.Tensor, pitch: Optional[torch.Tensor], lengths: torch.Tensor
-    ):
+    def forward(self, phone: torch.Tensor, pitch: Optional[torch.Tensor], lengths: torch.Tensor):
         x = self.emb_phone(phone)
         if pitch is not None and self.emb_pitch:
             x += self.emb_pitch(pitch)
@@ -178,9 +171,7 @@ class PosteriorEncoder(torch.nn.Module):
         )
         self.proj = torch.nn.Conv1d(hidden_channels, out_channels * 2, 1)
 
-    def forward(
-        self, x: torch.Tensor, x_lengths: torch.Tensor, g: Optional[torch.Tensor] = None
-    ):
+    def forward(self, x: torch.Tensor, x_lengths: torch.Tensor, g: Optional[torch.Tensor] = None):
         x_mask = sequence_mask(x_lengths, x.size(2)).unsqueeze(1).to(x.dtype)
 
         x = self.pre(x) * x_mask
@@ -199,9 +190,6 @@ class PosteriorEncoder(torch.nn.Module):
 
     def __prepare_scriptable__(self):
         for hook in self.enc._forward_pre_hooks.values():
-            if (
-                hook.__module__ == "torch.nn.utils.parametrizations.weight_norm"
-                and hook.__class__.__name__ == "WeightNorm"
-            ):
+            if hook.__module__ == "torch.nn.utils.parametrizations.weight_norm" and hook.__class__.__name__ == "WeightNorm":
                 torch.nn.utils.remove_weight_norm(self.enc)
         return self

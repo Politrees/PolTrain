@@ -1,5 +1,7 @@
 import math
+
 import torch
+
 from rvc.lib.algorithm.commons import convert_pad_shape
 
 
@@ -32,9 +34,7 @@ class MultiHeadAttention(torch.nn.Module):
         proximal_init: bool = False,
     ):
         super().__init__()
-        assert (
-            channels % n_heads == 0
-        ), "Channels must be divisible by the number of heads."
+        assert channels % n_heads == 0, "Channels must be divisible by the number of heads."
 
         self.channels = channels
         self.out_channels = out_channels
@@ -56,14 +56,8 @@ class MultiHeadAttention(torch.nn.Module):
         if window_size:
             n_heads_rel = 1 if heads_share else n_heads
             rel_stddev = self.k_channels**-0.5
-            self.emb_rel_k = torch.nn.Parameter(
-                torch.randn(n_heads_rel, 2 * window_size + 1, self.k_channels)
-                * rel_stddev
-            )
-            self.emb_rel_v = torch.nn.Parameter(
-                torch.randn(n_heads_rel, 2 * window_size + 1, self.k_channels)
-                * rel_stddev
-            )
+            self.emb_rel_k = torch.nn.Parameter(torch.randn(n_heads_rel, 2 * window_size + 1, self.k_channels) * rel_stddev)
+            self.emb_rel_v = torch.nn.Parameter(torch.randn(n_heads_rel, 2 * window_size + 1, self.k_channels) * rel_stddev)
 
         # Initialize weights
         torch.nn.init.xavier_uniform_(self.conv_q.weight)
@@ -106,11 +100,7 @@ class MultiHeadAttention(torch.nn.Module):
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e4)
             if self.block_length:
-                block_mask = (
-                    torch.ones_like(scores)
-                    .triu(-self.block_length)
-                    .tril(self.block_length)
-                )
+                block_mask = torch.ones_like(scores).triu(-self.block_length).tril(self.block_length)
                 scores = scores.masked_fill(block_mask == 0, -1e4)
 
         # Apply softmax and dropout
@@ -126,9 +116,7 @@ class MultiHeadAttention(torch.nn.Module):
 
     def _compute_relative_scores(self, query, length):
         rel_emb = self._get_relative_embeddings(self.emb_rel_k, length)
-        rel_logits = self._matmul_with_relative_keys(
-            query / math.sqrt(self.k_channels), rel_emb
-        )
+        rel_logits = self._matmul_with_relative_keys(query / math.sqrt(self.k_channels), rel_emb)
         return self._relative_position_to_absolute_position(rel_logits)
 
     def _apply_relative_values(self, p_attn, length):
@@ -157,26 +145,16 @@ class MultiHeadAttention(torch.nn.Module):
 
     def _relative_position_to_absolute_position(self, x):
         batch, heads, length, _ = x.size()
-        x = torch.nn.functional.pad(
-            x, convert_pad_shape([[0, 0], [0, 0], [0, 0], [0, 1]])
-        )
+        x = torch.nn.functional.pad(x, convert_pad_shape([[0, 0], [0, 0], [0, 0], [0, 1]]))
         x_flat = x.view(batch, heads, length * 2 * length)
-        x_flat = torch.nn.functional.pad(
-            x_flat, convert_pad_shape([[0, 0], [0, 0], [0, length - 1]])
-        )
-        return x_flat.view(batch, heads, length + 1, 2 * length - 1)[
-            :, :, :length, length - 1 :
-        ]
+        x_flat = torch.nn.functional.pad(x_flat, convert_pad_shape([[0, 0], [0, 0], [0, length - 1]]))
+        return x_flat.view(batch, heads, length + 1, 2 * length - 1)[:, :, :length, length - 1 :]
 
     def _absolute_position_to_relative_position(self, x):
         batch, heads, length, _ = x.size()
-        x = torch.nn.functional.pad(
-            x, convert_pad_shape([[0, 0], [0, 0], [0, 0], [0, length - 1]])
-        )
+        x = torch.nn.functional.pad(x, convert_pad_shape([[0, 0], [0, 0], [0, 0], [0, length - 1]]))
         x_flat = x.view(batch, heads, length**2 + length * (length - 1))
-        x_flat = torch.nn.functional.pad(
-            x_flat, convert_pad_shape([[0, 0], [0, 0], [length, 0]])
-        )
+        x_flat = torch.nn.functional.pad(x_flat, convert_pad_shape([[0, 0], [0, 0], [length, 0]]))
         return x_flat.view(batch, heads, length, 2 * length)[:, :, :, 1:]
 
     def _attention_bias_proximal(self, length):
@@ -232,12 +210,8 @@ class FFN(torch.nn.Module):
 
     def _causal_padding(self, x):
         pad_l, pad_r = self.conv_1.kernel_size[0] - 1, 0
-        return torch.nn.functional.pad(
-            x, convert_pad_shape([[0, 0], [0, 0], [pad_l, pad_r]])
-        )
+        return torch.nn.functional.pad(x, convert_pad_shape([[0, 0], [0, 0], [pad_l, pad_r]]))
 
     def _same_padding(self, x):
         pad = (self.conv_1.kernel_size[0] - 1) // 2
-        return torch.nn.functional.pad(
-            x, convert_pad_shape([[0, 0], [0, 0], [pad, pad]])
-        )
+        return torch.nn.functional.pad(x, convert_pad_shape([[0, 0], [0, 0], [pad, pad]]))
