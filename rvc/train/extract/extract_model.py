@@ -5,6 +5,16 @@ from collections import OrderedDict
 import torch
 
 
+def replace_keys_in_dict(d, old_key_part, new_key_part):
+    updated_dict = OrderedDict() if isinstance(d, OrderedDict) else {}
+    for key, value in d.items():
+        new_key = key.replace(old_key_part, new_key_part)
+        if isinstance(value, dict):
+            value = replace_keys_in_dict(value, old_key_part, new_key_part)
+        updated_dict[new_key] = value
+    return updated_dict
+
+
 def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder, final_save):
     weights_dir = os.path.join(model_dir, "weights")
     os.makedirs(weights_dir, exist_ok=True)
@@ -17,12 +27,8 @@ def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder,
         filepath = os.path.join(weights_dir, filename)
 
     try:
-        opt = OrderedDict()
-        opt["weight"] = {}
-        for key in ckpt.keys():
-            if "enc_q" in key:
-                continue
-            opt["weight"][key] = ckpt[key].half()
+
+        opt = OrderedDict(weight={key: value.half() for key, value in ckpt.items() if "enc_q" not in key})
         opt["config"] = [
             hps.data.filter_length // 2 + 1,
             32,
@@ -58,7 +64,9 @@ def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder,
         # opt["dataset_size"] =
         # opt["fragments_data"] =
 
-        torch.save(opt, filepath)
+        torch.save(replace_keys_in_dict(replace_keys_in_dict(opt, 
+            ".parametrizations.weight.original1", ".weight_v"),
+            ".parametrizations.weight.original0", ".weight_g"), filepath)
 
         return f"Модель '{filename}' успешно сохранена!"
     except Exception as e:

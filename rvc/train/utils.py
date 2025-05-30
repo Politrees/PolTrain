@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import sys
-
+from collections import OrderedDict
 import soundfile as sf
 import torch
 
@@ -15,59 +15,56 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging
 
 
+def replace_keys_in_dict(d, old_key_part, new_key_part):
+    updated_dict = OrderedDict() if isinstance(d, OrderedDict) else {}
+    for key, value in d.items():
+        new_key = key.replace(old_key_part, new_key_part) if isinstance(key, str) else key
+        updated_dict[new_key] = replace_keys_in_dict(value, old_key_part, new_key_part) if isinstance(value, dict) else value
+    return updated_dict
+
+
 def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
-    assert os.path.isfile(checkpoint_path)
+    assert os.path.isfile(checkpoint_path), f"Checkpoint file not found: {checkpoint_path}"
+
     checkpoint_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    checkpoint_dict = replace_keys_in_dict(replace_keys_in_dict(checkpoint_dict, 
+        ".weight_v", ".parametrizations.weight.original1"),
+        ".weight_g", ".parametrizations.weight.original0")
 
-    saved_state_dict = checkpoint_dict["model"]
-    state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
-
-    new_state_dict = {}
-    for k, v in state_dict.items():
-        try:
-            new_state_dict[k] = saved_state_dict[k]
-            if saved_state_dict[k].shape != state_dict[k].shape:
-                logger.warning(f"Несоответствие формы для {k}: нужно {state_dict[k].shape}, получено {saved_state_dict[k].shape}")
-                raise KeyError
-        except:
-            logger.info(f"Ключ {k} не найден в контрольной точке при использовании начальных весов")
-            new_state_dict[k] = v
+    model_state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
+    new_state_dict = {k: checkpoint_dict["model"].get(k, v) for k, v in model_state_dict.items()}
 
     if hasattr(model, "module"):
         model.module.load_state_dict(new_state_dict, strict=False)
     else:
         model.load_state_dict(new_state_dict, strict=False)
 
-    iteration = checkpoint_dict["iteration"]
-    learning_rate = checkpoint_dict["learning_rate"]
+    if optimizer and load_opt == 1:
+        optimizer.load_state_dict(checkpoint_dict.get("optimizer", {}))
 
-    if optimizer is not None and load_opt == 1:
-        optimizer.load_state_dict(checkpoint_dict["optimizer"])
-
-    logger.info(f"Успешно загружена контрольная точка '{checkpoint_path}' (эпоха {iteration})")
-    return model, optimizer, learning_rate, iteration
+    logger.info(f"Загружена контрольная точка '{checkpoint_path}' (эпоха {checkpoint_dict['iteration']})")
+    return model, optimizer, checkpoint_dict.get("learning_rate", 0), checkpoint_dict["iteration"]
 
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path):
-    logger.info(f"Сохранение состояния модели в '{checkpoint_path}' (эпоха {iteration})")
-
     state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
-    torch.save(
-        {
-            "model": state_dict,
-            "iteration": iteration,
-            "optimizer": optimizer.state_dict(),
-            "learning_rate": learning_rate,
-        },
-        checkpoint_path,
-    )
+    checkpoint_data = {
+        "model": state_dict,
+        "iteration": iteration,
+        "optimizer": optimizer.state_dict(),
+        "learning_rate": learning_rate,
+    }
+
+    torch.save(replace_keys_in_dict(replace_keys_in_dict(checkpoint_data, 
+        ".parametrizations.weight.original1", ".weight_v"),
+        ".parametrizations.weight.original0", ".weight_g"), checkpoint_path)
+
+    logger.info(f"Сохранен чекпоинт '{checkpoint_path}' (эпоха {iteration})")
 
 
 def latest_checkpoint_path(dir_path, regex="G_*.pth"):
-    f_list = glob.glob(os.path.join(dir_path, regex))
-    x = f_list[-1]
-    logger.debug(x)
-    return x
+    checkpoint = glob.glob(os.path.join(dir_path, regex))
+    return checkpoint[-1]
 
 
 def summarize(writer, tracking, scalars={}, images={}):
