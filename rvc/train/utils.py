@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 from collections import OrderedDict
+
 import soundfile as sf
 import torch
 
@@ -27,9 +28,11 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
     assert os.path.isfile(checkpoint_path), f"Checkpoint file not found: {checkpoint_path}"
 
     checkpoint_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-    checkpoint_dict = replace_keys_in_dict(replace_keys_in_dict(checkpoint_dict, 
-        ".weight_v", ".parametrizations.weight.original1"),
-        ".weight_g", ".parametrizations.weight.original0")
+    checkpoint_dict = replace_keys_in_dict(
+        replace_keys_in_dict(checkpoint_dict, ".weight_v", ".parametrizations.weight.original1"),
+        ".weight_g",
+        ".parametrizations.weight.original0",
+    )
 
     model_state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
     new_state_dict = {k: checkpoint_dict["model"].get(k, v) for k, v in model_state_dict.items()}
@@ -55,9 +58,14 @@ def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path)
         "learning_rate": learning_rate,
     }
 
-    torch.save(replace_keys_in_dict(replace_keys_in_dict(checkpoint_data, 
-        ".parametrizations.weight.original1", ".weight_v"),
-        ".parametrizations.weight.original0", ".weight_g"), checkpoint_path)
+    torch.save(
+        replace_keys_in_dict(
+            replace_keys_in_dict(checkpoint_data, ".parametrizations.weight.original1", ".weight_v"),
+            ".parametrizations.weight.original0",
+            ".weight_g",
+        ),
+        checkpoint_path,
+    )
 
     logger.info(f"Сохранен чекпоинт '{checkpoint_path}' (эпоха {iteration})")
 

@@ -64,9 +64,14 @@ def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder,
         # opt["dataset_size"] =
         # opt["fragments_data"] =
 
-        torch.save(replace_keys_in_dict(replace_keys_in_dict(opt, 
-            ".parametrizations.weight.original1", ".weight_v"),
-            ".parametrizations.weight.original0", ".weight_g"), filepath)
+        torch.save(
+            replace_keys_in_dict(
+                replace_keys_in_dict(opt, ".parametrizations.weight.original1", ".weight_v"),
+                ".parametrizations.weight.original0",
+                ".weight_g",
+            ),
+            filepath,
+        )
 
         return f"Модель '{filename}' успешно сохранена!"
     except Exception as e:
