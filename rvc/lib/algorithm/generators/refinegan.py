@@ -226,7 +226,7 @@ class SineGenerator(nn.Module):
         """
         # convert to F0 in rad. The integer part n can be ignored
         # because 2 * np.pi * n doesn't affect phase
-        rad_values = (f0_values / self.sampling_rate) % 1
+        rad_values = (f0_values / self.sample_rate) % 1
 
         # initial phase noise (no noise for fundamental component)
         rand_ini = torch.rand(f0_values.shape[0], f0_values.shape[2], device=f0_values.device)
