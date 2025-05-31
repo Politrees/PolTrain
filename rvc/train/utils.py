@@ -90,7 +90,6 @@ def get_hparams(init=True):
     parser.add_argument("-m", "--model_name", type=str, required=True)
     parser.add_argument("-te", "--total_epoch", type=int, required=True)
     parser.add_argument("-se", "--save_every_epoch", type=int, required=True)
-    parser.add_argument("-sr", "--sample_rate", type=int, required=True)
     parser.add_argument("-bs", "--batch_size", type=int, required=True)
     parser.add_argument("-voc", "--vocoder", type=str, default="HiFi-GAN")
     parser.add_argument("-pg", "--pretrainG", type=str, default="")
@@ -101,7 +100,7 @@ def get_hparams(init=True):
     args = parser.parse_args()
     experiment_dir = os.path.join(args.experiment_dir, args.model_name)
 
-    config_save_path = os.path.join(experiment_dir, "config.json")
+    config_save_path = os.path.join(experiment_dir, "data", "config.json")
     with open(config_save_path, "r") as f:
         config = json.load(f)
 
@@ -110,7 +109,6 @@ def get_hparams(init=True):
     hparams.model_name = args.model_name
     hparams.total_epoch = args.total_epoch
     hparams.save_every_epoch = args.save_every_epoch
-    hparams.sample_rate = args.sample_rate
     hparams.batch_size = args.batch_size
     hparams.vocoder = args.vocoder
     hparams.pretrainG = args.pretrainG
