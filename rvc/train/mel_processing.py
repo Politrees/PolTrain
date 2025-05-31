@@ -51,7 +51,6 @@ def spectrogram_torch(y, n_fft, hop_size, win_size, center=False):
 
 def spec_to_mel_torch(spec, n_fft, num_mels, sample_rate, fmin, fmax):
     global mel_basis
-    sample_rate = int(sample_rate.rstrip("k")) * 1000
     dtype_device = str(spec.dtype) + "_" + str(spec.device)
     fmax_dtype_device = str(fmax) + "_" + dtype_device
     if fmax_dtype_device not in mel_basis:
@@ -70,7 +69,6 @@ def mel_spectrogram_torch(y, n_fft, num_mels, sample_rate, hop_size, win_size, f
 
 
 def compute_window_length(n_mels: int, sample_rate: int):
-    sample_rate = int(sample_rate.rstrip("k")) * 1000
     f_min = 0
     f_max = sample_rate / 2
     window_length_seconds = 8 * n_mels / (f_max - f_min)
@@ -81,7 +79,7 @@ def compute_window_length(n_mels: int, sample_rate: int):
 class MultiScaleMelSpectrogramLoss(torch.nn.Module):
     def __init__(self, sample_rate: int = 24000, n_mels: list[int] = [5, 10, 20, 40, 80, 160, 320, 480], loss_fn=torch.nn.L1Loss()):
         super().__init__()
-        self.sample_rate = int(sample_rate.rstrip("k")) * 1000
+        self.sample_rate = sample_rate
         self.loss_fn = loss_fn
         self.log_base = torch.log(torch.tensor(10.0))
         self.stft_params: list[tuple] = []

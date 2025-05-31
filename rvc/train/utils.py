@@ -63,8 +63,8 @@ def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path)
 
 
 def latest_checkpoint_path(dir_path, regex="G_*.pth"):
-    checkpoint = glob.glob(os.path.join(dir_path, regex))
-    return checkpoint[-1]
+    checkpoints = sorted(glob.glob(os.path.join(dir_path, regex)))
+    return checkpoints[-1] if checkpoints else None
 
 
 def summarize(writer, tracking, scalars={}, images={}):
@@ -86,20 +86,19 @@ def load_filepaths_and_text(filename, split="|"):
 
 def get_hparams(init=True):
     parser = argparse.ArgumentParser()
-    parser.add_argument("-se", "--save_every_epoch", type=int, required=True)
+    parser.add_argument("-e", "--experiment_dir", type=str, required=True)
+    parser.add_argument("-m", "--model_name", type=str, required=True)
     parser.add_argument("-te", "--total_epoch", type=int, required=True)
+    parser.add_argument("-se", "--save_every_epoch", type=int, required=True)
+    parser.add_argument("-sr", "--sample_rate", type=int, required=True)
+    parser.add_argument("-bs", "--batch_size", type=int, required=True)
+    parser.add_argument("-voc", "--vocoder", type=str, default="HiFi-GAN")
     parser.add_argument("-pg", "--pretrainG", type=str, default="")
     parser.add_argument("-pd", "--pretrainD", type=str, default="")
     parser.add_argument("-g", "--gpus", type=str, default="0")
-    parser.add_argument("-bs", "--batch_size", type=int, required=True)
-    parser.add_argument("-e", "--experiment_dir", type=str, required=True)
-    parser.add_argument("-m", "--model_name", type=str, required=True)
-    parser.add_argument("-sr", "--sample_rate", type=str, required=True)
-    parser.add_argument("-sz", "--save_to_zip", type=str, required=True)
-    parser.add_argument("-voc", "--vocoder", type=str, default="HiFi-GAN")
+    parser.add_argument("-sz", "--save_to_zip", type=str, default="False")
 
     args = parser.parse_args()
-    name = args.model_name
     experiment_dir = os.path.join(args.experiment_dir, args.model_name)
 
     config_save_path = os.path.join(experiment_dir, "config.json")
@@ -107,17 +106,17 @@ def get_hparams(init=True):
         config = json.load(f)
 
     hparams = HParams(**config)
-    hparams.model_dir = hparams.experiment_dir = experiment_dir
-    hparams.save_every_epoch = args.save_every_epoch
-    hparams.name = name
+    hparams.model_dir = experiment_dir
+    hparams.model_name = args.model_name
     hparams.total_epoch = args.total_epoch
+    hparams.save_every_epoch = args.save_every_epoch
+    hparams.sample_rate = args.sample_rate
+    hparams.batch_size = args.batch_size
+    hparams.vocoder = args.vocoder
     hparams.pretrainG = args.pretrainG
     hparams.pretrainD = args.pretrainD
     hparams.gpus = args.gpus
-    hparams.batch_size = args.batch_size
-    hparams.sample_rate = args.sample_rate
     hparams.save_to_zip = args.save_to_zip
-    hparams.vocoder = args.vocoder
     hparams.data.training_files = f"{experiment_dir}/data/filelist.txt"
     return hparams
 

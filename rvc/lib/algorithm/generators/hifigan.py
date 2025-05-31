@@ -130,7 +130,7 @@ class SineGenerator(torch.nn.Module):
         voiced_threshold: float = 0.0,
     ):
         super(SineGenerator, self).__init__()
-        self.sampling_rate = int(sampling_rate.rstrip("k")) * 1000
+        self.sampling_rate = sampling_rate
         self.num_harmonics = num_harmonics
         self.sine_amplitude = sine_amplitude
         self.noise_stddev = noise_stddev

@@ -127,7 +127,7 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
         hps.data.filter_length // 2 + 1,
         hps.train.segment_size // hps.data.hop_length,
         **hps.model,
-        sr=hps.sample_rate,
+        sr=hps.data.sample_rate,
         vocoder=hps.vocoder,
         checkpointing=False,
         randomized=True,
@@ -151,7 +151,7 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
         eps=hps.train.eps,
     )
 
-    fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.sample_rate)
+    fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
 
     if torch.cuda.is_available():
         net_g = DDP(net_g, device_ids=[rank])
@@ -221,7 +221,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
             spec,
             hps.data.filter_length,
             hps.data.n_mel_channels,
-            hps.sample_rate,
+            hps.data.sample_rate,
             hps.data.mel_fmin,
             hps.data.mel_fmax,
         )
@@ -230,7 +230,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
             y_hat.float().squeeze(1),
             hps.data.filter_length,
             hps.data.n_mel_channels,
-            hps.sample_rate,
+            hps.data.sample_rate,
             hps.data.hop_length,
             hps.data.win_length,
             hps.data.mel_fmin,
@@ -301,20 +301,20 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
             # Определяем тип сохранения модели
             checkpoint = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
             save_model = extract_model(
-                hps, checkpoint, hps.name, epoch, global_step, hps.sample_rate, hps.model_dir, hps.vocoder, final_save=save_final
+                hps, checkpoint, hps.model_name, epoch, global_step, hps.data.sample_rate, hps.model_dir, hps.vocoder, final_save=save_final
             )
             logger.info(save_model)
 
         if save_final:
             # Действия при завершении обучения
             if hps.save_to_zip == "True":
-                zip_filename = os.path.join(hps.model_dir, f"{hps.name}.zip")
+                zip_filename = os.path.join(hps.model_dir, f"{hps.model_name}.zip")
 
                 import zipfile
 
                 with zipfile.ZipFile(zip_filename, "w") as zipf:
                     for ext in (".pth", ".index"):
-                        file_path = os.path.join(hps.model_dir, f"{hps.name}{ext}")
+                        file_path = os.path.join(hps.model_dir, f"{hps.model_name}{ext}")
                         zipf.write(file_path, os.path.basename(file_path))
                 logger.info(f"Файлы модели заархивированы в `{zip_filename}`")
 

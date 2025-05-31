@@ -8,9 +8,9 @@ logger = logging.getLogger(__name__)
 
 
 version_config_list = [
-    "32k.json",
-    "40k.json",
-    "48k.json",
+    "32000.json",
+    "40000.json",
+    "48000.json",
 ]
 
 
