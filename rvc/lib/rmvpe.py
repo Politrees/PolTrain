@@ -7,7 +7,6 @@ import torch.nn.functional as F
 from librosa.filters import mel
 from scipy.signal import medfilt
 
-# Constants for readability
 N_MELS = 128
 N_CLASS = 360
 
@@ -61,8 +60,27 @@ class ConvBlockRes(nn.Module):
     def forward(self, x):
         if self.is_shortcut:
             return self.conv(x) + self.shortcut(x)
-        else:
-            return self.conv(x) + x
+        return self.conv(x) + x
+
+
+class ResEncoderBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, n_blocks=1, momentum=0.01):
+        super(ResEncoderBlock, self).__init__()
+        self.n_blocks = n_blocks
+        self.conv = nn.ModuleList()
+        self.conv.append(ConvBlockRes(in_channels, out_channels, momentum))
+        for _ in range(n_blocks - 1):
+            self.conv.append(ConvBlockRes(out_channels, out_channels, momentum))
+        self.kernel_size = kernel_size
+        if self.kernel_size is not None:
+            self.pool = nn.AvgPool2d(kernel_size=kernel_size)
+
+    def forward(self, x):
+        for i in range(self.n_blocks):
+            x = self.conv[i](x)
+        if self.kernel_size is not None:
+            return x, self.pool(x)
+        return x
 
 
 class Encoder(nn.Module):
@@ -97,27 +115,6 @@ class Encoder(nn.Module):
             t, x = self.layers[i](x)
             concat_tensors.append(t)
         return x, concat_tensors
-
-
-class ResEncoderBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, n_blocks=1, momentum=0.01):
-        super(ResEncoderBlock, self).__init__()
-        self.n_blocks = n_blocks
-        self.conv = nn.ModuleList()
-        self.conv.append(ConvBlockRes(in_channels, out_channels, momentum))
-        for _ in range(n_blocks - 1):
-            self.conv.append(ConvBlockRes(out_channels, out_channels, momentum))
-        self.kernel_size = kernel_size
-        if self.kernel_size is not None:
-            self.pool = nn.AvgPool2d(kernel_size=kernel_size)
-
-    def forward(self, x):
-        for i in range(self.n_blocks):
-            x = self.conv[i](x)
-        if self.kernel_size is not None:
-            return x, self.pool(x)
-        else:
-            return x
 
 
 class Intermediate(nn.Module):
@@ -250,9 +247,8 @@ class E2E(nn.Module):
 class MelSpectrogram(torch.nn.Module):
     def __init__(
         self,
-        is_half,
         n_mel_channels,
-        sampling_rate,
+        sample_rate,
         win_length,
         hop_length,
         n_fft=None,
@@ -264,7 +260,7 @@ class MelSpectrogram(torch.nn.Module):
         n_fft = win_length if n_fft is None else n_fft
         self.hann_window = {}
         mel_basis = mel(
-            sr=sampling_rate,
+            sr=sample_rate,
             n_fft=n_fft,
             n_mels=n_mel_channels,
             fmin=mel_fmin,
@@ -276,10 +272,9 @@ class MelSpectrogram(torch.nn.Module):
         self.n_fft = win_length if n_fft is None else n_fft
         self.hop_length = hop_length
         self.win_length = win_length
-        self.sampling_rate = sampling_rate
+        self.sample_rate = sample_rate
         self.n_mel_channels = n_mel_channels
         self.clamp = clamp
-        self.is_half = is_half
 
     def forward(self, audio, keyshift=0, speed=1, center=True):
         factor = 2 ** (keyshift / 12)
@@ -307,26 +302,21 @@ class MelSpectrogram(torch.nn.Module):
                 magnitude = F.pad(magnitude, (0, 0, 0, size - resize))
             magnitude = magnitude[:, :size, :] * self.win_length / win_length_new
         mel_output = torch.matmul(self.mel_basis, magnitude)
-        if self.is_half:
-            mel_output = mel_output.half()
         log_mel_spec = torch.log(torch.clamp(mel_output, min=self.clamp))
         return log_mel_spec
 
 
 class RMVPE:
-    def __init__(self, model_path, is_half, device=None):
+    def __init__(self, model_path, device=None):
         self.resample_kernel = {}
         model = E2E(4, 1, (2, 2))
         ckpt = torch.load(model_path, map_location="cpu", weights_only=True)
         model.load_state_dict(ckpt)
         model.eval()
-        if is_half:
-            model = model.half()
         self.model = model
         self.resample_kernel = {}
-        self.is_half = is_half
         self.device = device
-        self.mel_extractor = MelSpectrogram(is_half, N_MELS, 16000, 1024, 160, None, 30, 8000).to(device)
+        self.mel_extractor = MelSpectrogram(N_MELS, 16000, 1024, 160, None, 30, 8000).to(device)
         self.model = self.model.to(device)
         cents_mapping = 20 * np.arange(N_CLASS) + 1997.3794084376191
         self.cents_mapping = np.pad(cents_mapping, (4, 4))
@@ -349,8 +339,6 @@ class RMVPE:
         mel = self.mel_extractor(audio, center=True)
         hidden = self.mel2hidden(mel)
         hidden = hidden.squeeze(0).cpu().numpy()
-        if self.is_half == True:
-            hidden = hidden.astype("float32")
         f0 = self.decode(hidden, thred=thred)
         return f0
 
@@ -359,8 +347,6 @@ class RMVPE:
         mel = self.mel_extractor(audio, center=True)
         hidden = self.mel2hidden(mel)
         hidden = hidden.squeeze(0).cpu().numpy()
-        if self.is_half:
-            hidden = hidden.astype("float32")
         f0 = self.decode(hidden, thred=thred)
         f0[(f0 < f0_min) | (f0 > f0_max)] = 0
         smoothed_f0 = medfilt(f0, kernel_size=window_size)
