@@ -44,7 +44,7 @@ class FeatureInput(object):
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
 
         # Инициализация модели RMVPE
-        self.model_rmvpe = RMVPE("assets/rmvpe/rmvpe.pt", False, "cuda")
+        self.model_rmvpe = RMVPE("assets/rmvpe/rmvpe.pt", "cuda")
 
     # Метод для вычисления F0
     def compute_f0(self, path, f0_method):
