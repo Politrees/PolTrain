@@ -37,7 +37,7 @@ from rvc.train.data_utils import DistributedBucketSampler, TextAudioCollateMulti
 from rvc.train.extract.extract_model import extract_model
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
-from rvc.train.utils import get_hparams, get_logger, latest_checkpoint_path, load_checkpoint, save_checkpoint, summarize
+from rvc.train.utils import get_hparams, get_logger, latest_checkpoint_path, load_checkpoint, save_checkpoint
 from rvc.train.visualization import plot_pitch_to_numpy, plot_spectrogram_to_numpy
 
 hps = get_hparams()
@@ -285,7 +285,10 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
             "pitch/real": plot_pitch_to_numpy(pitch[0].data.cpu().numpy()),  # Интонация реальных данных
             "pitch/fake": plot_pitch_to_numpy(pitchf[0].data.cpu().numpy()),  # Интонация сгенерированных данных
         }
-        summarize(writer=writer, tracking=epoch, scalars=scalar_dict, images=image_dict)
+        for k, v in scalar_dict.items():
+            writer.add_scalar(k, v, epoch)
+        for k, v in image_dict.items():
+            writer.add_image(k, v, epoch, dataformats="HWC")
 
     if rank == 0:
         logger.info(f"====> Эпоха: {epoch}/{hps.total_epoch} | Шаг: {global_step} | {epoch_recorder.record()}")

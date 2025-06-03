@@ -67,13 +67,6 @@ def latest_checkpoint_path(dir_path, regex="G_*.pth"):
     return checkpoints[-1] if checkpoints else None
 
 
-def summarize(writer, tracking, scalars={}, images={}):
-    for k, v in scalars.items():
-        writer.add_scalar(k, v, tracking, double_precision=True)
-    for k, v in images.items():
-        writer.add_image(k, v, tracking, dataformats="HWC")
-
-
 def load_wav_to_torch(full_path):
     data, sample_rate = sf.read(full_path, dtype="float32")
     return torch.FloatTensor(data), sample_rate
