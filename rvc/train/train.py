@@ -303,7 +303,19 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
 
             # Определяем тип сохранения модели
             checkpoint = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
-            logger.info(extract_model(hps, checkpoint, hps.model_name, epoch, global_step, hps.data.sample_rate, hps.model_dir, hps.vocoder, final_save=save_final))
+            logger.info(
+                extract_model(
+                    hps,
+                    checkpoint,
+                    hps.model_name,
+                    epoch,
+                    global_step,
+                    hps.data.sample_rate,
+                    hps.model_dir,
+                    hps.vocoder,
+                    final_save=save_final,
+                )
+            )
 
         if save_final:
             # Действия при завершении обучения
