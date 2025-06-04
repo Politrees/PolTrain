@@ -169,15 +169,15 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
 
         if hps.pretrainG not in ("", "None"):
             if rank == 0:
-                logger.info(f"Загрузка претрейна {hps.pretrainG}")
+                logger.info(f"Загрузка претрейна '{hps.pretrainG}'")
             g_model = net_g.module if hasattr(net_g, "module") else net_g
-            logger.info(g_model.load_state_dict(torch.load(hps.pretrainG, map_location="cpu", weights_only=True)["model"]))
+            g_model.load_state_dict(torch.load(hps.pretrainG, map_location="cpu", weights_only=True)["model"])
 
         if hps.pretrainD not in ("", "None"):
             if rank == 0:
-                logger.info(f"Загрузка претрейна {hps.pretrainD}")
+                logger.info(f"Загрузка претрейна '{hps.pretrainD}'")
             d_model = net_d.module if hasattr(net_d, "module") else net_d
-            logger.info(d_model.load_state_dict(torch.load(hps.pretrainD, map_location="cpu", weights_only=True)["model"]))
+            d_model.load_state_dict(torch.load(hps.pretrainD, map_location="cpu", weights_only=True)["model"])
 
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
     scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
