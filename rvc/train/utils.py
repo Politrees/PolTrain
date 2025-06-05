@@ -1,19 +1,11 @@
 import argparse
 import glob
 import json
-import logging
 import os
-import sys
 from collections import OrderedDict
 
 import soundfile as sf
 import torch
-
-for handler in logging.root.handlers[:]:
-    logging.root.removeHandler(handler)
-
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-logger = logging
 
 
 def replace_keys_in_dict(d, old_key_part, new_key_part):
@@ -118,21 +110,6 @@ def get_hparams(init=True):
     hparams.save_to_zip = args.save_to_zip
     hparams.data.training_files = f"{experiment_dir}/data/filelist.txt"
     return hparams
-
-
-def get_logger(model_dir, filename="train.log"):
-    global logger
-    logger = logging.getLogger(os.path.basename(model_dir))
-    logger.setLevel(logging.DEBUG)
-
-    formatter = logging.Formatter("%(asctime)s\t%(name)s\t%(levelname)s\t%(message)s")
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
-    h = logging.FileHandler(os.path.join(model_dir, filename))
-    h.setLevel(logging.DEBUG)
-    h.setFormatter(formatter)
-    logger.addHandler(h)
-    return logger
 
 
 class HParams:
