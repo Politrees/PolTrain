@@ -2,7 +2,6 @@ import datetime
 import logging
 import os
 import sys
-import glob
 import warnings
 from random import randint
 from time import sleep
@@ -65,15 +64,6 @@ class EpochRecorder:
 def main():
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
-
-    # Проверка частоты дискретизации
-    wavs = glob.glob(os.path.join(os.path.join(hps.model_dir, "data", "sliced_audios"), "*.wav"))
-    if wavs:
-        _, sr = load_wav_to_torch(wavs[0])
-        if sr != hps.data.sample_rate:
-            raise TypeError(f"Частота дискретизации предварительно обученной модели ({hps.data.sample_rate} Гц) не соответствует частоте дискретизации аудиоданных ({sr} Гц).")
-    else:
-        print("Не найден ни один файл wav.")
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
