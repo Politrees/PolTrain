@@ -70,14 +70,14 @@ def main():
     wavs = glob.glob(os.path.join(os.path.join(hps.model_dir, "data", "sliced_audios"), "*.wav"))
     if wavs:
         _, sr = load_wav_to_torch(wavs[0])
-        if sr != sample_rate:
-            raise TypeError(f"Частота дискретизации предварительно обученной модели ({sample_rate} Гц) не соответствует частоте дискретизации аудиоданных ({sr} Гц).")
+        if sr != hps.data.sample_rate:
+            raise TypeError(f"Частота дискретизации предварительно обученной модели ({hps.data.sample_rate} Гц) не соответствует частоте дискретизации аудиоданных ({sr} Гц).")
     else:
         print("Не найден ни один файл wav.")
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
-        gpus = [int(item) for item in gpus.split("-")]
+        gpus = [int(item) for item in hps.gpus.split("-")]
         n_gpus = len(gpus)
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
