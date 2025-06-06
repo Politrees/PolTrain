@@ -77,7 +77,7 @@ def main():
         device = torch.device("cpu")
         gpus = [0]
         n_gpus = 1
-        print("Обучение с использованием процессора займёт много времени.")
+        print("Обучение с использованием процессора займёт много времени.", flush=True)
 
     children = []
     for rank, device_id in enumerate(gpus):
@@ -180,13 +180,13 @@ def run(hps, rank, n_gpus, device, device_id):
 
         if hps.pretrainG not in ("", "None"):
             if rank == 0:
-                print(f"Загрузка претрейна '{hps.pretrainG}'")
+                print(f"Загрузка претрейна '{hps.pretrainG}'", flush=True)
             g_model = net_g.module if hasattr(net_g, "module") else net_g
             g_model.load_state_dict(torch.load(hps.pretrainG, map_location="cpu", weights_only=True)["model"])
 
         if hps.pretrainD not in ("", "None"):
             if rank == 0:
-                print(f"Загрузка претрейна '{hps.pretrainD}'")
+                print(f"Загрузка претрейна '{hps.pretrainD}'", flush=True)
             d_model = net_d.module if hasattr(net_d, "module") else net_d
             d_model.load_state_dict(torch.load(hps.pretrainD, map_location="cpu", weights_only=True)["model"])
 
@@ -304,7 +304,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
             writer.add_image(k, v, epoch, dataformats="HWC")
 
     if rank == 0:
-        print(f"====> Эпоха: {epoch}/{hps.total_epoch} | Шаг: {global_step} | {epoch_recorder.record()}")
+        print(f"====> Эпоха: {epoch}/{hps.total_epoch} | Шаг: {global_step} | {epoch_recorder.record()}", flush=True)
 
         save_final = epoch >= hps.total_epoch
         save_checkpoint_cond = (epoch % hps.save_every_epoch == 0) or save_final
@@ -327,7 +327,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
                     hps.model_dir,
                     hps.vocoder,
                     final_save=save_final,
-                )
+                ), flush=True
             )
 
         if save_final:
@@ -341,9 +341,9 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
                     for ext in (".pth", ".index"):
                         file_path = os.path.join(hps.model_dir, f"{hps.model_name}{ext}")
                         zipf.write(file_path, os.path.basename(file_path))
-                print(f"Файлы модели заархивированы в `{zip_filename}`")
+                print(f"Файлы модели заархивированы в `{zip_filename}`", flush=True)
 
-            print("Обучение успешно завершено.")
+            print("Обучение успешно завершено.", flush=True)
             sleep(1)
             os._exit(2333333)
 

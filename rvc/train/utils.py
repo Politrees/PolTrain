@@ -35,7 +35,7 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
     if optimizer and load_opt == 1:
         optimizer.load_state_dict(checkpoint_dict.get("optimizer", {}))
 
-    print(f"Загружена контрольная точка '{checkpoint_path}' (эпоха {checkpoint_dict['iteration']})")
+    print(f"Загружена контрольная точка '{checkpoint_path}' (эпоха {checkpoint_dict['iteration']})", flush=True)
     return model, optimizer, checkpoint_dict.get("learning_rate", 0), checkpoint_dict["iteration"]
 
 
@@ -57,7 +57,7 @@ def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path)
         checkpoint_path,
     )
 
-    print(f"Сохранен чекпоинт '{checkpoint_path}' (эпоха {iteration})")
+    print(f"Сохранен чекпоинт '{checkpoint_path}' (эпоха {iteration})", flush=True)
 
 
 def latest_checkpoint_path(dir_path, regex="G_*.pth"):
