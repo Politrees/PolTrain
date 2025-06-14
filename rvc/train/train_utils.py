@@ -71,10 +71,10 @@ def optimizer_class(optimizer, params_g, params_d, lr, betas, eps):
     # torch.optim
     if optimizer == "Adam":
         optim_class = torch.optim.Adam
-    elif optimizer == "AdamW":
-        optim_class = torch.optim.AdamW
-    elif optimizer == "RAdam":
-        optim_class = torch.optim.RAdam
+    # elif optimizer == "AdamW":
+    #     optim_class = torch.optim.AdamW - нормик (дефолт)
+    # elif optimizer == "RAdam":
+    #     optim_class = torch.optim.RAdam - 50/50
     elif optimizer == "NAdam":
         optim_class = torch.optim.NAdam
     elif optimizer == "Adamax":
@@ -86,8 +86,8 @@ def optimizer_class(optimizer, params_g, params_d, lr, betas, eps):
         optim_class = torch_optim.Lamb
     elif optimizer == "Yogi":
         optim_class = torch_optim.Yogi
-    elif optimizer == "AdamP":
-        optim_class = torch_optim.AdamP
+    # elif optimizer == "AdamP":
+    #     optim_class = torch_optim.AdamP - вроде норм
     elif optimizer == "SWATS":
         optim_class = torch_optim.SWATS
     elif optimizer == "AdaMod":
@@ -96,14 +96,14 @@ def optimizer_class(optimizer, params_g, params_d, lr, betas, eps):
         optim_class = torch_optim.QHAdam
     elif optimizer == "Apollo":
         optim_class = torch_optim.Apollo
-    elif optimizer == "DiffGrad":
-        optim_class = torch_optim.DiffGrad
+    # elif optimizer == "DiffGrad":
+    #     optim_class = torch_optim.DiffGrad - 50/50
     elif optimizer == "NovoGrad":
         optim_class = torch_optim.NovoGrad
     elif optimizer == "AdaBound":
         optim_class = torch_optim.AdaBound
-    elif optimizer == "AdaBelief":
-        optim_class = torch_optim.AdaBelief
+    # elif optimizer == "AdaBelief":
+    #     optim_class = torch_optim.AdaBelief - какащке
     elif optimizer == "Adahessian":
         optim_class = torch_optim.Adahessian
 
