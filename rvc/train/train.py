@@ -15,8 +15,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-# Настройка уровня логирования для различных библиотек
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["USE_LIBUV"] = "0" if sys.platform == "win32" else "1"
+
+# Настройка уровня логирования для различных библиотек
 logging.getLogger("tensorflow").setLevel(logging.WARNING)
 logging.getLogger("h5py").setLevel(logging.WARNING)
 logging.getLogger("jax").setLevel(logging.WARNING)
@@ -27,8 +29,6 @@ logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-logger = logging.getLogger(__name__)
-
 sys.path.append(os.path.join(os.getcwd()))
 from rvc.lib.algorithm.commons import grad_norm, slice_segments
 from rvc.lib.algorithm.discriminators import MultiPeriodDiscriminator
@@ -37,13 +37,10 @@ from rvc.train.data_utils import DistributedBucketSampler, TextAudioCollateMulti
 from rvc.train.extract.extract_model import extract_model
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
-from rvc.train.utils import get_hparams, get_logger, latest_checkpoint_path, load_checkpoint, save_checkpoint
+from rvc.train.utils import get_hparams, latest_checkpoint_path, load_checkpoint, save_checkpoint
 from rvc.train.visualization import plot_pitch_to_numpy, plot_spectrogram_to_numpy
 
 hps = get_hparams()
-os.environ["USE_LIBUV"] = "0" if os.name == "nt" else "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = hps.gpus.replace("-", ",")
-n_gpus = len(hps.gpus.split("-"))
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
@@ -65,21 +62,28 @@ class EpochRecorder:
 
 
 def main():
-    n_gpus = torch.cuda.device_count()
-
-    if not torch.cuda.is_available():
-        print("NO GPU DETECTED: falling back to CPU - this may take a while")
-        n_gpus = 1
-
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
 
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        gpus = [int(item) for item in hps.gpus.split("-")]
+        n_gpus = len(gpus)
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+        gpus = [0]
+        n_gpus = 1
+    else:
+        device = torch.device("cpu")
+        gpus = [0]
+        n_gpus = 1
+        print("Обучение с использованием процессора займёт много времени.", flush=True)
+
     children = []
-    logger = get_logger(hps.model_dir)
-    for i in range(n_gpus):
+    for rank, device_id in enumerate(gpus):
         subproc = mp.Process(
             target=run,
-            args=(i, n_gpus, hps, logger),
+            args=(hps, rank, n_gpus, device, device_id),
         )
         children.append(subproc)
         subproc.start()
@@ -88,19 +92,23 @@ def main():
         children[i].join()
 
 
-def run(rank, n_gpus, hps, logger: logging.Logger):
+def run(hps, rank, n_gpus, device, device_id):
     global global_step
 
     writer_eval = None
     if rank == 0:
         writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval"))
 
-    backend = "gloo" if os.name == "nt" or not torch.cuda.is_available() else "nccl"
-    dist.init_process_group(backend=backend, init_method="env://", world_size=n_gpus, rank=rank)
+    dist.init_process_group(
+        backend="gloo" if sys.platform == "win32" or device.type != "cuda" else "nccl",
+        init_method="env://",
+        world_size=n_gpus if device.type == "cuda" else 1,
+        rank=rank if device.type == "cuda" else 0,
+    )
 
     torch.manual_seed(hps.train.seed)
     if torch.cuda.is_available():
-        torch.cuda.set_device(rank)
+        torch.cuda.set_device(device_id)
 
     collate_fn = TextAudioCollateMultiNSFsid()
     train_dataset = TextAudioLoaderMultiNSFsid(hps.data)
@@ -135,8 +143,11 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
     net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm, checkpointing=False)
 
     if torch.cuda.is_available():
-        net_g = net_g.cuda(rank)
-        net_d = net_d.cuda(rank)
+        net_g = net_g.cuda(device_id)
+        net_d = net_d.cuda(device_id)
+    else:
+        net_g = net_g.to(device)
+        net_d = net_d.to(device)
 
     optim_g = torch.optim.AdamW(
         net_g.parameters(),
@@ -153,9 +164,9 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
 
     fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
 
-    if torch.cuda.is_available():
-        net_g = DDP(net_g, device_ids=[rank])
-        net_d = DDP(net_d, device_ids=[rank])
+    if n_gpus > 1 and device.type == "cuda":
+        net_g = DDP(net_g, device_ids=[device_id])
+        net_d = DDP(net_d, device_ids=[device_id])
 
     try:
         _, _, _, epoch_str = load_checkpoint(latest_checkpoint_path(hps.model_dir, "D_*.pth"), net_d, optim_d)
@@ -169,13 +180,13 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
 
         if hps.pretrainG not in ("", "None"):
             if rank == 0:
-                logger.info(f"Загрузка претрейна '{hps.pretrainG}'")
+                print(f"Загрузка претрейна '{hps.pretrainG}'", flush=True)
             g_model = net_g.module if hasattr(net_g, "module") else net_g
             g_model.load_state_dict(torch.load(hps.pretrainG, map_location="cpu", weights_only=True)["model"])
 
         if hps.pretrainD not in ("", "None"):
             if rank == 0:
-                logger.info(f"Загрузка претрейна '{hps.pretrainD}'")
+                print(f"Загрузка претрейна '{hps.pretrainD}'", flush=True)
             d_model = net_d.module if hasattr(net_d, "module") else net_d
             d_model.load_state_dict(torch.load(hps.pretrainD, map_location="cpu", weights_only=True)["model"])
 
@@ -183,12 +194,12 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
     scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
 
     for epoch in range(epoch_str, hps.total_epoch + 1):
-        train_and_evaluate(hps, rank, epoch, [net_g, net_d], [optim_g, optim_d], [train_loader, None], logger, [writer_eval], fn_mel_loss)
+        train_and_evaluate(hps, rank, epoch, [net_g, net_d], [optim_g, optim_d], [train_loader, None], [writer_eval], fn_mel_loss, device, device_id)
         scheduler_g.step()
         scheduler_d.step()
 
 
-def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers, fn_mel_loss):
+def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_loss, device, device_id):
     global global_step
 
     if writers is not None:
@@ -207,8 +218,10 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
 
     data_iterator = enumerate(train_loader)
     for batch_idx, info in data_iterator:
-        if torch.cuda.is_available():
-            info = [tensor.cuda(rank, non_blocking=True) for tensor in info]
+        if device.type == "cuda":
+            info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
+        elif device.type != "cuda":
+            info = [tensor.to(device) for tensor in info]
 
         phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, wave_lengths, sid = info
         model_output = net_g(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
@@ -291,7 +304,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
             writer.add_image(k, v, epoch, dataformats="HWC")
 
     if rank == 0:
-        logger.info(f"====> Эпоха: {epoch}/{hps.total_epoch} | Шаг: {global_step} | {epoch_recorder.record()}")
+        print(f"{hps.model_name} | Эпоха: {epoch}/{hps.total_epoch} | Шаг: {global_step} | {epoch_recorder.record()}", flush=True)
 
         save_final = epoch >= hps.total_epoch
         save_checkpoint_cond = (epoch % hps.save_every_epoch == 0) or save_final
@@ -303,7 +316,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
 
             # Определяем тип сохранения модели
             checkpoint = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
-            logger.info(
+            print(
                 extract_model(
                     hps,
                     checkpoint,
@@ -314,7 +327,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
                     hps.model_dir,
                     hps.vocoder,
                     final_save=save_final,
-                )
+                ), flush=True
             )
 
         if save_final:
@@ -328,9 +341,9 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, logger, writers,
                     for ext in (".pth", ".index"):
                         file_path = os.path.join(hps.model_dir, f"{hps.model_name}{ext}")
                         zipf.write(file_path, os.path.basename(file_path))
-                logger.info(f"Файлы модели заархивированы в `{zip_filename}`")
+                print(f"Файлы модели заархивированы в `{zip_filename}`", flush=True)
 
-            logger.info("Обучение успешно завершено.")
+            print("Обучение успешно завершено.", flush=True)
             sleep(1)
             os._exit(2333333)
 

@@ -1,19 +1,11 @@
 import argparse
 import glob
 import json
-import logging
 import os
-import sys
 from collections import OrderedDict
 
 import soundfile as sf
 import torch
-
-for handler in logging.root.handlers[:]:
-    logging.root.removeHandler(handler)
-
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-logger = logging
 
 
 def replace_keys_in_dict(d, old_key_part, new_key_part):
@@ -34,18 +26,16 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
         ".parametrizations.weight.original0",
     )
 
-    model_state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
-    new_state_dict = {k: checkpoint_dict["model"].get(k, v) for k, v in model_state_dict.items()}
+    model_to_load = model.module if hasattr(model, "module") else model
+    model_state_dict = model_to_load.state_dict()
 
-    if hasattr(model, "module"):
-        model.module.load_state_dict(new_state_dict, strict=False)
-    else:
-        model.load_state_dict(new_state_dict, strict=False)
+    new_state_dict = {k: checkpoint_dict["model"].get(k, v) for k, v in model_state_dict.items()}
+    model_to_load.load_state_dict(new_state_dict, strict=False)
 
     if optimizer and load_opt == 1:
         optimizer.load_state_dict(checkpoint_dict.get("optimizer", {}))
 
-    logger.info(f"Загружена контрольная точка '{checkpoint_path}' (эпоха {checkpoint_dict['iteration']})")
+    print(f"Загружена контрольная точка '{checkpoint_path}' (эпоха {checkpoint_dict['iteration']})", flush=True)
     return model, optimizer, checkpoint_dict.get("learning_rate", 0), checkpoint_dict["iteration"]
 
 
@@ -67,7 +57,7 @@ def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path)
         checkpoint_path,
     )
 
-    logger.info(f"Сохранен чекпоинт '{checkpoint_path}' (эпоха {iteration})")
+    print(f"Сохранен чекпоинт '{checkpoint_path}' (эпоха {iteration})", flush=True)
 
 
 def latest_checkpoint_path(dir_path, regex="G_*.pth"):
@@ -118,21 +108,6 @@ def get_hparams(init=True):
     hparams.save_to_zip = args.save_to_zip
     hparams.data.training_files = f"{experiment_dir}/data/filelist.txt"
     return hparams
-
-
-def get_logger(model_dir, filename="train.log"):
-    global logger
-    logger = logging.getLogger(os.path.basename(model_dir))
-    logger.setLevel(logging.DEBUG)
-
-    formatter = logging.Formatter("%(asctime)s\t%(name)s\t%(levelname)s\t%(message)s")
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
-    h = logging.FileHandler(os.path.join(model_dir, filename))
-    h.setLevel(logging.DEBUG)
-    h.setFormatter(formatter)
-    logger.addHandler(h)
-    return logger
 
 
 class HParams:
