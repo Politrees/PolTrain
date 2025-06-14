@@ -4,7 +4,16 @@ import numpy as np
 import torch
 import torch.utils.data
 from mel_processing import spectrogram_torch
-from utils import load_filepaths_and_text, load_wav_to_torch
+
+
+def load_wav_to_torch(full_path):
+    data, sample_rate = sf.read(full_path, dtype="float32")
+    return torch.FloatTensor(data), sample_rate
+
+
+def load_filepaths_and_text(filename, split="|"):
+    with open(filename, encoding="utf-8") as f:
+        return [line.strip().split(split) for line in f]
 
 
 class TextAudioLoaderMultiNSFsid(torch.utils.data.Dataset):

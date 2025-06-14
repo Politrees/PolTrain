@@ -37,7 +37,7 @@ from rvc.train.data_utils import DistributedBucketSampler, TextAudioCollateMulti
 from rvc.train.extract.extract_model import extract_model
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
-from rvc.train.utils import get_hparams, latest_checkpoint_path, load_checkpoint, save_checkpoint
+from rvc.train.train_utils import get_hparams, latest_checkpoint_path, load_checkpoint, save_checkpoint
 from rvc.train.visualization import plot_pitch_to_numpy, plot_spectrogram_to_numpy
 
 hps = get_hparams()

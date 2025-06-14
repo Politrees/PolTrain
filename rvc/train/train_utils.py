@@ -65,16 +65,6 @@ def latest_checkpoint_path(dir_path, regex="G_*.pth"):
     return checkpoints[-1] if checkpoints else None
 
 
-def load_wav_to_torch(full_path):
-    data, sample_rate = sf.read(full_path, dtype="float32")
-    return torch.FloatTensor(data), sample_rate
-
-
-def load_filepaths_and_text(filename, split="|"):
-    with open(filename, encoding="utf-8") as f:
-        return [line.strip().split(split) for line in f]
-
-
 def get_hparams(init=True):
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--experiment_dir", type=str, required=True)
