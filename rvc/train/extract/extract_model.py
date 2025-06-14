@@ -15,7 +15,7 @@ def replace_keys_in_dict(d, old_key_part, new_key_part):
     return updated_dict
 
 
-def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder, final_save):
+def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder, sex, final_save):
     weights_dir = os.path.join(model_dir, "weights")
     os.makedirs(weights_dir, exist_ok=True)
 
@@ -27,7 +27,6 @@ def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder,
         filepath = os.path.join(weights_dir, filename)
 
     try:
-
         opt = OrderedDict(weight={key: value.half() for key, value in ckpt.items() if "enc_q" not in key})
         opt["config"] = [
             hps.data.filter_length // 2 + 1,
@@ -61,8 +60,8 @@ def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder,
 
         # Дополнительные метаданные
         opt["learning_environment"] = "PolTrain"
-        # opt["dataset_size"] =
-        # opt["fragments_data"] =
+        if sex in (155.0, 255.0):  # 155.0 - Мужская модель | 255.0 - Женская модель
+            opt["sex"] = sex
 
         torch.save(
             replace_keys_in_dict(

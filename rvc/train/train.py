@@ -326,6 +326,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
                     hps.data.sample_rate,
                     hps.model_dir,
                     hps.vocoder,
+                    hps.sex,
                     final_save=save_final,
                 ), flush=True
             )

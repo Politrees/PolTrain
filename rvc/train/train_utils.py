@@ -76,6 +76,7 @@ def get_hparams(init=True):
     parser.add_argument("-pg", "--pretrainG", type=str, default="")
     parser.add_argument("-pd", "--pretrainD", type=str, default="")
     parser.add_argument("-g", "--gpus", type=str, default="0")
+    parser.add_argument("-s", "--sex", type=float, default=0.0)
     parser.add_argument("-sz", "--save_to_zip", type=str, default="False")
 
     args = parser.parse_args()
@@ -95,6 +96,7 @@ def get_hparams(init=True):
     hparams.pretrainG = args.pretrainG
     hparams.pretrainD = args.pretrainD
     hparams.gpus = args.gpus
+    hparams.sex = args.sex
     hparams.save_to_zip = args.save_to_zip
     hparams.data.training_files = f"{experiment_dir}/data/filelist.txt"
     return hparams
