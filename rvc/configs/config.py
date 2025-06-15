@@ -1,6 +1,7 @@
-import torch
 import json
 import os
+
+import torch
 
 version_config_paths = [
     os.path.join("48000.json"),
@@ -24,11 +25,7 @@ def singleton(cls):
 class Config:
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.gpu_name = (
-            torch.cuda.get_device_name(int(self.device.split(":")[-1]))
-            if self.device.startswith("cuda")
-            else None
-        )
+        self.gpu_name = torch.cuda.get_device_name(int(self.device.split(":")[-1])) if self.device.startswith("cuda") else None
         self.json_config = self.load_config_json()
         self.gpu_mem = None
         self.x_pad, self.x_query, self.x_center, self.x_max = self.device_config()
@@ -58,6 +55,4 @@ class Config:
     def set_cuda_config(self):
         i_device = int(self.device.split(":")[-1])
         self.gpu_name = torch.cuda.get_device_name(i_device)
-        self.gpu_mem = torch.cuda.get_device_properties(i_device).total_memory // (
-            1024**3
-        )
+        self.gpu_mem = torch.cuda.get_device_properties(i_device).total_memory // (1024**3)
