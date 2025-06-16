@@ -23,12 +23,13 @@ logging.getLogger("fairseq").setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-exp_dir = sys.argv[1]  # Директория с данными
-f0_method = sys.argv[2]  # Метод извлечения F0
-sample_rate = sys.argv[2]  # Частота дискретизации
-include_mutes = sys.argv[2]  # Количество мьют файлов
+exp_dir = str(sys.argv[1])  # Директория с данными
+f0_method = str(sys.argv[2])  # Метод извлечения F0
+sample_rate = int(sys.argv[3])  # Частота дискретизации
+include_mutes = int(sys.argv[4])  # Количество мьют файлов
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 class DataPreprocessor:
     def __init__(self):
@@ -116,7 +117,7 @@ class DataPreprocessor:
         if not files:
             self._raise_no_files_error()
 
-        print(f"Фрагментов, готовых к обработке - {len(files)}")
+        print(f"\nФрагментов, готовых к обработке - {len(files)}")
 
         # Обработка файлов
         for file in tqdm(files, desc="Извлечение тона"):
