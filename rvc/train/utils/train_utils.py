@@ -3,9 +3,11 @@ import glob
 import json
 import os
 from collections import OrderedDict
+from distutils.util import strtobool
 
 import soundfile as sf
 import torch
+import torch_optimizer as torch_optim
 
 
 def replace_keys_in_dict(d, old_key_part, new_key_part):
@@ -65,6 +67,52 @@ def latest_checkpoint_path(dir_path, regex="G_*.pth"):
     return checkpoints[-1] if checkpoints else None
 
 
+def optimizer_class(optimizer, params_g, params_d, lr, betas, eps):
+    # torch.optim
+    if optimizer == "Adam":
+        optim_class = torch.optim.Adam
+    elif optimizer == "AdamW":
+        optim_class = torch.optim.AdamW # - нормик (дефолт)
+    elif optimizer == "RAdam":
+        optim_class = torch.optim.RAdam # - 50/50
+    elif optimizer == "NAdam":
+        optim_class = torch.optim.NAdam
+    elif optimizer == "Adamax":
+        optim_class = torch.optim.Adamax
+    elif optimizer == "SparseAdam":
+        optim_class = torch.optim.SparseAdam
+    # torch_optimizer
+    elif optimizer == "Lamb":
+        optim_class = torch_optim.Lamb
+    elif optimizer == "Yogi":
+        optim_class = torch_optim.Yogi
+    elif optimizer == "AdamP":
+        optim_class = torch_optim.AdamP # - вроде норм
+    elif optimizer == "SWATS":
+        optim_class = torch_optim.SWATS
+    elif optimizer == "AdaMod":
+        optim_class = torch_optim.AdaMod
+    elif optimizer == "QHAdam":
+        optim_class = torch_optim.QHAdam
+    elif optimizer == "Apollo":
+        optim_class = torch_optim.Apollo
+    elif optimizer == "DiffGrad":
+        optim_class = torch_optim.DiffGrad # - 50/50
+    elif optimizer == "NovoGrad":
+        optim_class = torch_optim.NovoGrad
+    elif optimizer == "AdaBound":
+        optim_class = torch_optim.AdaBound
+    elif optimizer == "AdaBelief":
+        optim_class = torch_optim.AdaBelief # - какащке
+    elif optimizer == "Adahessian":
+        optim_class = torch_optim.Adahessian
+
+    optim_g = optim_class(params=params_g, lr=lr, betas=betas, eps=eps)
+    optim_d = optim_class(params=params_d, lr=lr, betas=betas, eps=eps)
+
+    return optim_g, optim_d
+
+
 def get_hparams(init=True):
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--experiment_dir", type=str, required=True)
@@ -73,11 +121,12 @@ def get_hparams(init=True):
     parser.add_argument("-se", "--save_every_epoch", type=int, required=True)
     parser.add_argument("-bs", "--batch_size", type=int, required=True)
     parser.add_argument("-voc", "--vocoder", type=str, default="HiFi-GAN")
+    parser.add_argument("-opt", "--optimizer", type=str, default="AdamW")
     parser.add_argument("-pg", "--pretrainG", type=str, default="")
     parser.add_argument("-pd", "--pretrainD", type=str, default="")
     parser.add_argument("-g", "--gpus", type=str, default="0")
     parser.add_argument("-s", "--sex", type=float, default=0.0)
-    parser.add_argument("-sz", "--save_to_zip", type=str, default="False")
+    parser.add_argument("-sz", "--save_to_zip", type=lambda x: bool(strtobool(x)), default=False)
 
     args = parser.parse_args()
     experiment_dir = os.path.join(args.experiment_dir, args.model_name)
@@ -93,6 +142,7 @@ def get_hparams(init=True):
     hparams.save_every_epoch = args.save_every_epoch
     hparams.batch_size = args.batch_size
     hparams.vocoder = args.vocoder
+    hparams.optimizer = args.optimizer
     hparams.pretrainG = args.pretrainG
     hparams.pretrainD = args.pretrainD
     hparams.gpus = args.gpus

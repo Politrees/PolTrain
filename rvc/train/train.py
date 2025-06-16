@@ -37,7 +37,7 @@ from rvc.train.extract.extract_model import extract_model
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
 from rvc.train.utils.data_utils import DistributedBucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
-from rvc.train.utils.train_utils import get_hparams, latest_checkpoint_path, load_checkpoint, save_checkpoint
+from rvc.train.utils.train_utils import get_hparams, latest_checkpoint_path, load_checkpoint, save_checkpoint, optimizer_class
 from rvc.train.visualization import plot_pitch_to_numpy, plot_spectrogram_to_numpy
 
 hps = get_hparams()
@@ -149,18 +149,7 @@ def run(hps, rank, n_gpus, device, device_id):
         net_g = net_g.to(device)
         net_d = net_d.to(device)
 
-    optim_g = torch.optim.AdamW(
-        net_g.parameters(),
-        hps.train.learning_rate,
-        betas=hps.train.betas,
-        eps=hps.train.eps,
-    )
-    optim_d = torch.optim.AdamW(
-        net_d.parameters(),
-        hps.train.learning_rate,
-        betas=hps.train.betas,
-        eps=hps.train.eps,
-    )
+    optim_g, optim_d = optimizer_class(optimizer=hps.optimizer, params_g=net_g.parameters(), params_d=net_d.parameters(), lr=hps.train.learning_rate, betas=hps.train.betas, eps=hps.train.eps)
 
     fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
 
