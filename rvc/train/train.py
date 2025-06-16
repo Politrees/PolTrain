@@ -325,7 +325,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
 
         if save_final:
             # Действия при завершении обучения
-            if hps.save_to_zip == "True":
+            if hps.save_to_zip:
                 zip_filename = os.path.join(hps.model_dir, f"{hps.model_name}.zip")
 
                 import zipfile
