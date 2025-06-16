@@ -14,6 +14,7 @@ sys.path.append(os.getcwd())
 
 from rvc.lib.audio import load_audio
 from rvc.lib.rmvpe import RMVPE
+from rvc.train.preprocess.preparing_files import generate_config, generate_filelist
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -24,6 +25,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 exp_dir = sys.argv[1]  # Директория с данными
 f0_method = sys.argv[2]  # Метод извлечения F0
+sample_rate = sys.argv[2]  # Частота дискретизации
+include_mutes = sys.argv[2]  # Количество мьют файлов
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -161,6 +164,9 @@ if __name__ == "__main__":
     try:
         preprocessor = DataPreprocessor()
         preprocessor.process_files()
+        
+        generate_config(exp_dir, sample_rate)
+        generate_filelist(exp_dir, sample_rate, include_mutes)
     except Exception as e:
         print(f"Критическая ошибка: {str(e)}")
         print(traceback.format_exc())
