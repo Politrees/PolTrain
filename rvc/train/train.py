@@ -194,7 +194,9 @@ def run(hps, rank, n_gpus, device, device_id):
     scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
 
     for epoch in range(epoch_str, hps.total_epoch + 1):
-        train_and_evaluate(hps, rank, epoch, [net_g, net_d], [optim_g, optim_d], [train_loader, None], [writer_eval], fn_mel_loss, device, device_id)
+        train_and_evaluate(
+            hps, rank, epoch, [net_g, net_d], [optim_g, optim_d], [train_loader, None], [writer_eval], fn_mel_loss, device, device_id
+        )
         scheduler_g.step()
         scheduler_d.step()
 
@@ -328,7 +330,8 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
                     hps.vocoder,
                     hps.sex,
                     final_save=save_final,
-                ), flush=True
+                ),
+                flush=True,
             )
 
         if save_final:

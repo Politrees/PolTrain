@@ -3,12 +3,13 @@ import os
 import sys
 import traceback
 import warnings
-from tqdm import tqdm
+
 import fairseq
 import numpy as np
 import soundfile as sf
 import torch
 import torch.nn.functional as F
+from tqdm import tqdm
 
 sys.path.append(os.getcwd())
 
@@ -41,7 +42,7 @@ class DataPreprocessor:
         self.f0_max = 1100.0
         self.f0_mel_min = 1127 * np.log(1 + self.f0_min / 700)
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
-        
+
         # Инициализация моделей
         self.model_rmvpe = RMVPE("assets/rmvpe/rmvpe.pt", "cuda")
         self.hubert_model = self._load_hubert_model()
@@ -54,11 +55,11 @@ class DataPreprocessor:
                 f"Error: HuBERT model not found at {model_path}, "
                 "download it from https://huggingface.co/lj1995/VoiceConversionWebUI/tree/main"
             )
-        
+
         models, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task([model_path], suffix="")
         model = models[0].to(device).eval()
         return model
-  
+
     def compute_f0(self, path, f0_method):
         """Вычисление F0"""
         audio = load_audio(path, self.sample_rate)
@@ -91,13 +92,9 @@ class DataPreprocessor:
         """Извлечение признаков HuBERT"""
         feats = self.read_wave(wav_path)
         padding_mask = torch.BoolTensor(feats.shape).fill_(False)
-        
+
         with torch.no_grad():
-            logits = self.hubert_model.extract_features(
-                source=feats.to(device),
-                padding_mask=padding_mask.to(device),
-                output_layer=12
-            )
+            logits = self.hubert_model.extract_features(source=feats.to(device), padding_mask=padding_mask.to(device), output_layer=12)
             return logits[0].squeeze(0).float().cpu().numpy()
 
     def process_files(self):
@@ -107,7 +104,7 @@ class DataPreprocessor:
         f0_quant_path = f"{exp_dir}/data/f0_quantized"
         f0_voiced_path = f"{exp_dir}/data/f0_voiced"
         features_path = f"{exp_dir}/data/features"
-        
+
         os.makedirs(f0_quant_path, exist_ok=True)
         os.makedirs(f0_voiced_path, exist_ok=True)
         os.makedirs(features_path, exist_ok=True)
@@ -125,7 +122,7 @@ class DataPreprocessor:
                 inp_path = f"{inp_root}/{file}"
                 opt_path1 = f"{f0_quant_path}/{file}"
                 opt_path2 = f"{f0_voiced_path}/{file}"
-                
+
                 if not (os.path.exists(opt_path1 + ".npy") and os.path.exists(opt_path2 + ".npy")):
                     featur_pit = self.compute_f0(inp_path, f0_method)
                     np.save(opt_path2, featur_pit, allow_pickle=False)
@@ -138,7 +135,7 @@ class DataPreprocessor:
             try:
                 wav_path = f"{inp_root}/{file}"
                 out_path = f"{features_path}/{file.replace('.wav', '.npy')}"
-                
+
                 if not os.path.exists(out_path):
                     feats = self.extract_features(wav_path)
                     if np.isnan(feats).sum() > 0:
@@ -161,11 +158,12 @@ class DataPreprocessor:
         )
         raise FileNotFoundError(error_message)
 
+
 if __name__ == "__main__":
     try:
         preprocessor = DataPreprocessor()
         preprocessor.process_files()
-        
+
         generate_config(exp_dir, sample_rate)
         generate_filelist(exp_dir, sample_rate, include_mutes)
     except Exception as e:

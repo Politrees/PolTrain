@@ -1,5 +1,4 @@
 import os
-import json
 import shutil
 from random import shuffle
 
