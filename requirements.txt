@@ -11,6 +11,7 @@ matplotlib==3.10.1
 matplotlib-inline==0.1.7
 
 # Машинное обучение
+torch_optimizer
 torch<2.6
 torchaudio<2.6
 torchvision<0.21
