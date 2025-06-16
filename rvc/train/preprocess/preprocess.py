@@ -26,15 +26,6 @@ SAMPLE_RATE_16K = 16000  # Частота дискретизации 16 кГц
 sr_target = sample_rate  # Целевая частота дискретизации
 num_processes = os.cpu_count()  # Количество процессов
 
-f = open(f"{exp_dir}/logfile.log", "a+")
-
-
-# Функция для вывода и логирования сообщений
-def printt(strr):
-    print(strr)
-    f.write(f"{strr}\n")
-    f.flush()
-
 
 class PreProcess:
     def __init__(self, sample_rate, sr_target, exp_dir, percentage=3.0, normalize=True):
@@ -69,7 +60,7 @@ class PreProcess:
         # Проверка на превышение максимального уровня сигнала
         tmp_max = np.abs(tmp_audio).max()
         if tmp_max > 2.5:
-            printt(f"{idx0}-{idx1}-{tmp_max}-filtered")
+            print(f"{idx0}-{idx1}-{tmp_max}-filtered")
             return
 
         # Ресемплирование аудио до целевой частоты дискретизации
@@ -113,7 +104,7 @@ class PreProcess:
                         self.norm_write(tmp_audio, idx0, idx1)
                         idx1 += 1
                         break
-            printt(f"{path}\t-> Success")
+            print(f"{path}\t-> Success")
         except Exception as e:
             raise RuntimeError(f"{path}\t-> {traceback.format_exc()}")
 
@@ -123,7 +114,7 @@ class PreProcess:
             self.pipeline(path, idx0)
 
     def pipeline_mp_inp_dir(self, input_root, num_processes):
-        printt("Обработка датасета...")
+        print("Обработка датасета...")
         try:
             # Сбор информации о файлах в директории
             infos = [(os.path.join(input_root, name), idx) for idx, name in enumerate(sorted(list(os.listdir(input_root))))]
@@ -136,8 +127,7 @@ class PreProcess:
                 p.start()
             for p in ps:
                 p.join()
-            printt("Обработка успешно завершена!")
-            printt("\n\n")
+            print("Обработка успешно завершена!")
         except Exception as e:
             raise RuntimeError(f"Ошибка! {traceback.format_exc()}")
 

@@ -4,7 +4,7 @@ import shutil
 from random import shuffle
 
 
-def generate_config(sample_rate: int, model_path: str):
+def generate_config(model_path: str, sample_rate: int):
     config_path = os.path.join("rvc", "configs", f"{sample_rate}.json")
     config_save_path = os.path.join(model_path, "data", "config.json")
     if not os.path.exists(config_save_path):
