@@ -37,6 +37,6 @@
     "upsample_kernel_sizes": [24,20,4,4],
     "use_spectral_norm": false,
     "gin_channels": 256,
-    "spk_embed_dim": 109
+    "spk_embed_dim": 476
   }
 }
