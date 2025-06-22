@@ -218,11 +218,10 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
     net_g.train()
     net_d.train()
 
-    data_iterator = enumerate(train_loader)
-    for batch_idx, info in data_iterator:
+    for batch_idx, info in enumerate(train_loader):
         if device.type == "cuda":
             info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
-        elif device.type != "cuda":
+        else:
             info = [tensor.to(device) for tensor in info]
 
         phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, wave_lengths, sid = info
@@ -230,27 +229,6 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
         y_hat, ids_slice, x_mask, z_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = model_output
 
         wave = slice_segments(wave, ids_slice * hps.data.hop_length, hps.train.segment_size, dim=3)
-
-        # Mel-Spectrogram
-        mel = spec_to_mel_torch(
-            spec,
-            hps.data.filter_length,
-            hps.data.n_mel_channels,
-            hps.data.sample_rate,
-            hps.data.mel_fmin,
-            hps.data.mel_fmax,
-        )
-        y_mel = slice_segments(mel, ids_slice, hps.train.segment_size // hps.data.hop_length, dim=3)
-        y_hat_mel = mel_spectrogram_torch(
-            y_hat.float().squeeze(1),
-            hps.data.filter_length,
-            hps.data.n_mel_channels,
-            hps.data.sample_rate,
-            hps.data.hop_length,
-            hps.data.win_length,
-            hps.data.mel_fmin,
-            hps.data.mel_fmax,
-        )
 
         # Discriminator loss
         for _ in range(1):  # default x1
@@ -280,6 +258,26 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
         global_step += 1
 
     if rank == 0 and epoch % hps.train.log_interval == 0:
+        mel = spec_to_mel_torch(
+            spec,
+            hps.data.filter_length,
+            hps.data.n_mel_channels,
+            hps.data.sample_rate,
+            hps.data.mel_fmin,
+            hps.data.mel_fmax,
+        )
+        y_mel = slice_segments(mel, ids_slice, hps.train.segment_size // hps.data.hop_length, dim=3)
+        y_hat_mel = mel_spectrogram_torch(
+            y_hat.float().squeeze(1),
+            hps.data.filter_length,
+            hps.data.n_mel_channels,
+            hps.data.sample_rate,
+            hps.data.hop_length,
+            hps.data.win_length,
+            hps.data.mel_fmin,
+            hps.data.mel_fmax,
+        )
+        
         scalar_dict = {
             "grad/norm_d": grad_norm_d,  # Норма градиентов Дискриминатора
             "grad/norm_g": grad_norm_g,  # Норма градиентов Генератора
