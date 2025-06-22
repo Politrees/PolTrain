@@ -73,5 +73,5 @@ def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder,
         )
 
         return f"Модель '{filename}' успешно сохранена!"
-    except Exception as e:
+    except Exception:
         return f"Ошибка при сохранении модели: {traceback.format_exc()}"

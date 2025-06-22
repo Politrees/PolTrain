@@ -320,7 +320,7 @@ class RefineGANGenerator(nn.Module):
         channels = upsample_initial_channel
 
         self.downsample_blocks = nn.ModuleList([])
-        for i, u in enumerate(upsample_rates):
+        for i, _ in enumerate(upsample_rates):
             # handling odd upsampling rates
             stride = stride_f0s[i]
             kernel = 1 if stride == 1 else stride * 2 - stride % 2

@@ -75,7 +75,7 @@ def rand_slice_segments(x, x_lengths=None, segment_size=4):
         x_lengths: The lengths of the sequences.
         segment_size: The size of each segment.
     """
-    b, d, t = x.size()
+    b, _, t = x.size()
     if x_lengths is None:
         x_lengths = t
     ids_str_max = x_lengths - segment_size + 1

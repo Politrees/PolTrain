@@ -58,7 +58,7 @@ class HiFiGANGenerator(torch.nn.Module):
                 )
             )
             ch = upsample_initial_channel // (2 ** (i + 1))
-            for j, (k, d) in enumerate(zip(resblock_kernel_sizes, resblock_dilation_sizes)):
+            for _, (k, d) in enumerate(zip(resblock_kernel_sizes, resblock_dilation_sizes)):
                 self.resblocks.append(ResBlock(ch, k, d))
 
         self.conv_post = torch.nn.Conv1d(ch, 1, 7, 1, padding=3, bias=False)
@@ -155,7 +155,7 @@ class SineGenerator(torch.nn.Module):
             f0 (torch.Tensor): Fundamental frequency tensor of shape (batch_size, length, 1).
             upsampling_factor (int): The factor by which to upsample the sine wave.
         """
-        batch_size, length, _ = f0.shape
+        batch_size, _, _ = f0.shape
 
         # Create an upsampling grid
         upsampling_grid = torch.arange(1, upsampling_factor + 1, dtype=f0.dtype, device=f0.device)

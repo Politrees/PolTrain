@@ -44,7 +44,7 @@ class SourceModuleHnNSF(torch.nn.Module):
         self.l_tanh = torch.nn.Tanh()
 
     def forward(self, x: torch.Tensor, upsample_factor: int = 1):
-        sine_wavs, uv, _ = self.l_sin_gen(x, upsample_factor)
+        sine_wavs, _, _ = self.l_sin_gen(x, upsample_factor)
         sine_wavs = sine_wavs.to(dtype=self.l_linear.weight.dtype)
         sine_merge = self.l_tanh(self.l_linear(sine_wavs))
         return sine_merge, None, None

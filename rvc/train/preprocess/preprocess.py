@@ -105,7 +105,7 @@ class PreProcess:
                         idx1 += 1
                         break
             print(f"{path}\t-> Success")
-        except Exception as e:
+        except Exception:
             raise RuntimeError(f"{path}\t-> {traceback.format_exc()}")
 
     def pipeline_mp(self, infos):
@@ -128,7 +128,7 @@ class PreProcess:
             for p in ps:
                 p.join()
             print("Обработка успешно завершена!")
-        except Exception as e:
+        except Exception:
             raise RuntimeError(f"Ошибка! {traceback.format_exc()}")
 
 

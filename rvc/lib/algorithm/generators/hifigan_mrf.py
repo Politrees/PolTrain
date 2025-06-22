@@ -205,7 +205,7 @@ class SourceModuleHnNSF(torch.nn.Module):
         self.l_tanh = torch.nn.Tanh()
 
     def forward(self, x: torch.Tensor):
-        sine_wavs, uv, _ = self.l_sin_gen(x)
+        sine_wavs, _, _ = self.l_sin_gen(x)
         sine_wavs = sine_wavs.to(dtype=self.l_linear.weight.dtype)
         sine_merge = self.l_tanh(self.l_linear(sine_wavs))
 
