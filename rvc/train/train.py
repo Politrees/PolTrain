@@ -1,8 +1,11 @@
+import argparse
 import datetime
 import logging
+import json
 import os
 import sys
 import warnings
+from distutils.util import strtobool
 from random import randint
 from time import sleep
 from time import time as ttime
@@ -37,14 +40,51 @@ from rvc.train.extract.extract_model import extract_model
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
 from rvc.train.utils.data_utils import DistributedBucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
-from rvc.train.utils.train_utils import get_hparams, latest_checkpoint_path, load_checkpoint, save_checkpoint
+from rvc.train.utils.train_utils import HParams, latest_checkpoint_path, load_checkpoint, save_checkpoint
 from rvc.train.visualization import plot_pitch_to_numpy, plot_spectrogram_to_numpy
-
-hps = get_hparams()
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
 
+
+def get_hparams(init=True):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-e", "--experiment_dir", type=str, required=True)
+    parser.add_argument("-m", "--model_name", type=str, required=True)
+    parser.add_argument("-te", "--total_epoch", type=int, required=True)
+    parser.add_argument("-se", "--save_every_epoch", type=int, required=True)
+    parser.add_argument("-bs", "--batch_size", type=int, required=True)
+    parser.add_argument("-voc", "--vocoder", type=str, default="HiFi-GAN")
+    parser.add_argument("-pg", "--pretrainG", type=str, default="")
+    parser.add_argument("-pd", "--pretrainD", type=str, default="")
+    parser.add_argument("-g", "--gpus", type=str, default="0")
+    parser.add_argument("-s", "--sex", type=float, default=0.0)
+    parser.add_argument("-sz", "--save_to_zip", type=lambda x: bool(strtobool(x)), default=False)
+
+    args = parser.parse_args()
+    experiment_dir = os.path.join(args.experiment_dir, args.model_name)
+
+    config_save_path = os.path.join(experiment_dir, "data", "config.json")
+    with open(config_save_path, "r") as f:
+        config = json.load(f)
+
+    hparams = HParams(**config)
+    hparams.model_dir = experiment_dir
+    hparams.model_name = args.model_name
+    hparams.total_epoch = args.total_epoch
+    hparams.save_every_epoch = args.save_every_epoch
+    hparams.batch_size = args.batch_size
+    hparams.vocoder = args.vocoder
+    hparams.pretrainG = args.pretrainG
+    hparams.pretrainD = args.pretrainD
+    hparams.gpus = args.gpus
+    hparams.sex = args.sex
+    hparams.save_to_zip = args.save_to_zip
+    hparams.data.training_files = f"{experiment_dir}/data/filelist.txt"
+    return hparams
+
+
+hps = get_hparams()
 global_step = 0
 
 
@@ -334,7 +374,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
 
         if save_final:
             # Действия при завершении обучения
-            if hps.save_to_zip == "True":
+            if hps.save_to_zip:
                 zip_filename = os.path.join(hps.model_dir, f"{hps.model_name}.zip")
 
                 import zipfile

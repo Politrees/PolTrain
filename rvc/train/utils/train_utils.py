@@ -1,10 +1,7 @@
-import argparse
 import glob
-import json
 import os
 from collections import OrderedDict
 
-import soundfile as sf
 import torch
 
 
@@ -63,43 +60,6 @@ def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path)
 def latest_checkpoint_path(dir_path, regex="G_*.pth"):
     checkpoints = sorted(glob.glob(os.path.join(dir_path, regex)))
     return checkpoints[-1] if checkpoints else None
-
-
-def get_hparams(init=True):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--experiment_dir", type=str, required=True)
-    parser.add_argument("-m", "--model_name", type=str, required=True)
-    parser.add_argument("-te", "--total_epoch", type=int, required=True)
-    parser.add_argument("-se", "--save_every_epoch", type=int, required=True)
-    parser.add_argument("-bs", "--batch_size", type=int, required=True)
-    parser.add_argument("-voc", "--vocoder", type=str, default="HiFi-GAN")
-    parser.add_argument("-pg", "--pretrainG", type=str, default="")
-    parser.add_argument("-pd", "--pretrainD", type=str, default="")
-    parser.add_argument("-g", "--gpus", type=str, default="0")
-    parser.add_argument("-s", "--sex", type=float, default=0.0)
-    parser.add_argument("-sz", "--save_to_zip", type=str, default="False")
-
-    args = parser.parse_args()
-    experiment_dir = os.path.join(args.experiment_dir, args.model_name)
-
-    config_save_path = os.path.join(experiment_dir, "data", "config.json")
-    with open(config_save_path, "r") as f:
-        config = json.load(f)
-
-    hparams = HParams(**config)
-    hparams.model_dir = experiment_dir
-    hparams.model_name = args.model_name
-    hparams.total_epoch = args.total_epoch
-    hparams.save_every_epoch = args.save_every_epoch
-    hparams.batch_size = args.batch_size
-    hparams.vocoder = args.vocoder
-    hparams.pretrainG = args.pretrainG
-    hparams.pretrainD = args.pretrainD
-    hparams.gpus = args.gpus
-    hparams.sex = args.sex
-    hparams.save_to_zip = args.save_to_zip
-    hparams.data.training_files = f"{experiment_dir}/data/filelist.txt"
-    return hparams
 
 
 class HParams:
