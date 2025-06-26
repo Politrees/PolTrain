@@ -45,8 +45,8 @@ def mel_spec_similarity(y_hat_mel, y_mel):
 
     if y_hat_mel.shape != y_mel.shape:
         trimmed_shape = tuple(min(dim_a, dim_b) for dim_a, dim_b in zip(y_hat_mel.shape, y_mel.shape))
-        y_hat_mel = y_hat_mel[..., :trimmed_shape[-1]]
-        y_mel = y_mel[..., :trimmed_shape[-1]]
+        y_hat_mel = y_hat_mel[..., : trimmed_shape[-1]]
+        y_mel = y_mel[..., : trimmed_shape[-1]]
 
     loss_mel = F.l1_loss(y_hat_mel, y_mel)
     mel_spec_similarity = 100.0 - (loss_mel * 100.0)
