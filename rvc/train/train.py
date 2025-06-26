@@ -317,6 +317,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
             hps.data.mel_fmin,
             hps.data.mel_fmax,
         )
+        mel_similarity = mel_spec_similarity(y_hat_mel, y_mel)
 
         scalar_dict = {
             "grad/norm_d": grad_norm_d,  # Норма градиентов Дискриминатора
@@ -329,7 +330,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
             "loss/g/mel": loss_mel,  # Потеря на основе мел-спектрограммы
             "loss/g/kl": loss_kl,  # Потеря на основе расхождения распределений в модели
             "loss/g/total": loss_gen_all,  # Общая потеря Генератора
-            "metrics/mel_sim": mel_spec_similarity(y_hat_mel, y_mel),  # Сходство между сгенерированной и реальной мел-спектрограммами
+            "metrics/mel_sim": mel_similarity,  # Сходство между сгенерированной и реальной мел-спектрограммами
             "metrics/mse_wave": F.mse_loss(y_hat, wave),  # Среднеквадратичная ошибка между реальными и сгенерированными аудиосигналами
             "metrics/mse_pitch": F.mse_loss(pitchf, pitch),  # Среднеквадратичная ошибка между реальными и сгенерированными интонациями
         }
