@@ -98,7 +98,7 @@ class EpochRecorder:
         self.last_time = now_time
         elapsed_time = round(elapsed_time, 1)
         elapsed_time_str = str(datetime.timedelta(seconds=int(elapsed_time)))
-        return f"Скорость: [{elapsed_time_str}]"
+        return f"[{elapsed_time_str}]"
 
 
 def main():
@@ -347,11 +347,10 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
 
     if rank == 0:
         print(
-            f"{hps.model_name} | "
+            f"{epoch_recorder.record()} - {hps.model_name} | "
             f"Эпоха: {epoch}/{hps.total_epoch} | "
             f"Шаг: {global_step} | "
-            f"Сходство mel (G/R): {mel_similarity:.2f}% | "
-            f"{epoch_recorder.record()}",
+            f"Сходство mel (G/R): {mel_similarity:.2f}%",
             flush=True
         )
 
