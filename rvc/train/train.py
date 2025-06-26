@@ -41,7 +41,7 @@ from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, k
 from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
 from rvc.train.utils.data_utils import DistributedBucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
 from rvc.train.utils.train_utils import HParams, latest_checkpoint_path, load_checkpoint, save_checkpoint
-from rvc.train.visualization import plot_pitch_to_numpy, plot_spectrogram_to_numpy
+from rvc.train.visualization import plot_pitch_to_numpy, plot_spectrogram_to_numpy, mel_spec_similarity
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
@@ -317,7 +317,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
             hps.data.mel_fmin,
             hps.data.mel_fmax,
         )
-        
+
         scalar_dict = {
             "grad/norm_d": grad_norm_d,  # Норма градиентов Дискриминатора
             "grad/norm_g": grad_norm_g,  # Норма градиентов Генератора
@@ -329,6 +329,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
             "loss/g/mel": loss_mel,  # Потеря на основе мел-спектрограммы
             "loss/g/kl": loss_kl,  # Потеря на основе расхождения распределений в модели
             "loss/g/total": loss_gen_all,  # Общая потеря Генератора
+            "metrics/mel_sim": mel_spec_similarity(y_hat_mel, y_mel),  # Сходство между сгенерированной и реальной мел-спектрограммами
             "metrics/mse_wave": F.mse_loss(y_hat, wave),  # Среднеквадратичная ошибка между реальными и сгенерированными аудиосигналами
             "metrics/mse_pitch": F.mse_loss(pitchf, pitch),  # Среднеквадратичная ошибка между реальными и сгенерированными интонациями
         }
@@ -344,7 +345,14 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
             writer.add_image(k, v, epoch, dataformats="HWC")
 
     if rank == 0:
-        print(f"{hps.model_name} | Эпоха: {epoch}/{hps.total_epoch} | Шаг: {global_step} | {epoch_recorder.record()}", flush=True)
+        print(
+            f"{hps.model_name} | 
+            f"Эпоха: {epoch}/{hps.total_epoch} | 
+            f"Шаг: {global_step} | 
+            f"Сходство mel (G/R): {mel_similarity:.2f}% | 
+            f"{epoch_recorder.record()}",
+            flush=True
+        )
 
         save_final = epoch >= hps.total_epoch
         save_checkpoint_cond = (epoch % hps.save_every_epoch == 0) or save_final
