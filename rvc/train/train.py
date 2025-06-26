@@ -1,7 +1,7 @@
 import argparse
 import datetime
-import logging
 import json
+import logging
 import os
 import sys
 import warnings
@@ -41,7 +41,7 @@ from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, k
 from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
 from rvc.train.utils.data_utils import DistributedBucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
 from rvc.train.utils.train_utils import HParams, latest_checkpoint_path, load_checkpoint, save_checkpoint
-from rvc.train.visualization import plot_pitch_to_numpy, plot_spectrogram_to_numpy, mel_spec_similarity
+from rvc.train.visualization import mel_spec_similarity, plot_pitch_to_numpy, plot_spectrogram_to_numpy
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
@@ -351,7 +351,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
             f"Эпоха: {epoch}/{hps.total_epoch} | "
             f"Шаг: {global_step} | "
             f"Сходство mel (G/R): {mel_similarity:.2f}%",
-            flush=True
+            flush=True,
         )
 
         save_final = epoch >= hps.total_epoch
