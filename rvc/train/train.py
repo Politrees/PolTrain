@@ -346,10 +346,10 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
 
     if rank == 0:
         print(
-            f"{hps.model_name} | 
-            f"Эпоха: {epoch}/{hps.total_epoch} | 
-            f"Шаг: {global_step} | 
-            f"Сходство mel (G/R): {mel_similarity:.2f}% | 
+            f"{hps.model_name} | "
+            f"Эпоха: {epoch}/{hps.total_epoch} | "
+            f"Шаг: {global_step} | "
+            f"Сходство mel (G/R): {mel_similarity:.2f}% | "
             f"{epoch_recorder.record()}",
             flush=True
         )
