@@ -8,7 +8,6 @@ import fairseq
 import numpy as np
 import soundfile as sf
 import torch
-import torch.nn.functional as F
 from tqdm import tqdm
 
 sys.path.append(os.getcwd())
