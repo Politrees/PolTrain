@@ -38,7 +38,7 @@ def plot_pitch_to_numpy(pitch_values, figsize=(12, 3)):
     return data
 
 
-def mel_spec_similarity(y_hat_mel, y_mel):
+def mel_spectrogram_similarity(y_hat_mel, y_mel):
     """Сходство между сгенерированной и реальной мел-спектрограммами"""
     device = y_hat_mel.device
     y_mel = y_mel.to(device)
@@ -50,6 +50,4 @@ def mel_spec_similarity(y_hat_mel, y_mel):
 
     loss_mel = F.l1_loss(y_hat_mel, y_mel)
     mel_spec_similarity = 100.0 - (loss_mel * 100.0)
-    mel_spec_similarity = mel_spec_similarity.clamp(0.0, 100.0)
-
-    return mel_spec_similarity
+    return mel_spec_similarity.clamp(0.0, 100.0)
