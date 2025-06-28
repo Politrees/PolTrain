@@ -28,7 +28,7 @@ jobs:
         continue-on-error: true
 
       - name: Run PyLint
-        run: pylint . --max-line-length 140
+        run: pylint . --max-line-length 140 --disable=C0114,C0115
         continue-on-error: true
 
       - name: Run Vulture
