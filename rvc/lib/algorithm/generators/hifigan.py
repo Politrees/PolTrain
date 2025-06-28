@@ -37,7 +37,7 @@ class HiFiGANGenerator(torch.nn.Module):
         upsample_kernel_sizes: list,
         gin_channels: int = 0,
     ):
-        super(HiFiGANGenerator, self).__init__()
+        super().__init__()
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
         self.conv_pre = torch.nn.Conv1d(initial_channel, upsample_initial_channel, 7, 1, padding=3)
@@ -129,7 +129,7 @@ class SineGenerator(torch.nn.Module):
         noise_stddev: float = 0.003,
         voiced_threshold: float = 0.0,
     ):
-        super(SineGenerator, self).__init__()
+        super().__init__()
         self.sampling_rate = sampling_rate
         self.num_harmonics = num_harmonics
         self.sine_amplitude = sine_amplitude

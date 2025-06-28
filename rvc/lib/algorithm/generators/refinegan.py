@@ -201,7 +201,7 @@ class SineGenerator(nn.Module):
         noise_std=0.003,
         voiced_threshold=0,
     ):
-        super(SineGenerator, self).__init__()
+        super().__init__()
         self.sine_amp = sine_amp
         self.noise_std = noise_std
         self.harmonic_num = harmonic_num

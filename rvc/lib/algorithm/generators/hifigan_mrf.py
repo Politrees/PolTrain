@@ -102,7 +102,7 @@ class SineGenerator(torch.nn.Module):
         noise_std: float = 0.003,
         voiced_threshold: float = 0,
     ):
-        super(SineGenerator, self).__init__()
+        super().__init__()
         self.sine_amp = sine_amp
         self.noise_std = noise_std
         self.harmonic_num = harmonic_num
@@ -192,7 +192,7 @@ class SourceModuleHnNSF(torch.nn.Module):
         add_noise_std: float = 0.003,
         voiced_threshold: float = 0,
     ):
-        super(SourceModuleHnNSF, self).__init__()
+        super().__init__()
 
         self.sine_amp = sine_amp
         self.noise_std = add_noise_std
