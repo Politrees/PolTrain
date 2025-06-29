@@ -265,14 +265,16 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
             info = [tensor.to(device) for tensor in info]
 
         phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, _, sid = info
-        model_output = net_g(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
-        y_hat, ids_slice, _, z_mask, (_, z_p, m_p, logs_p, _, logs_q) = model_output
+        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+            model_output = net_g(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
+            y_hat, ids_slice, _, z_mask, (_, z_p, m_p, logs_p, _, logs_q) = model_output
 
         wave = slice_segments(wave, ids_slice * hps.data.hop_length, hps.train.segment_size, dim=3)
 
         # Discriminator loss
         for _ in range(1):  # default x1
-            y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
             loss_disc, _, _ = discriminator_loss(y_d_hat_r, y_d_hat_g)
             optim_d.zero_grad()
             loss_disc.backward()
@@ -280,7 +282,8 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
             optim_d.step()
 
         # Generator loss
-        _, y_d_hat_g, fmap_r, fmap_g = net_d(wave, y_hat)
+        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+            _, y_d_hat_g, fmap_r, fmap_g = net_d(wave, y_hat)
         loss_mel = fn_mel_loss(wave, y_hat) * hps.train.c_mel / 3.0
         loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
         loss_fm = feature_loss(fmap_r, fmap_g)
@@ -320,25 +323,25 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
         mel_similarity = mel_spectrogram_similarity(y_hat_mel, y_mel)
 
         scalar_dict = {
-            "grad/norm_d": grad_norm_d,  # Норма градиентов Дискриминатора
-            "grad/norm_g": grad_norm_g,  # Норма градиентов Генератора
-            "learning_rate/d": current_lr_d,  # Скорость обучения Дискриминатора
-            "learning_rate/g": current_lr_g,  # Скорость обучения Генератора
-            "loss/avg/d": loss_disc,  # Потеря Дискриминатора
-            "loss/avg/g": loss_gen,  # Потеря Генератора
-            "loss/g/fm": loss_fm,  # Потеря на основе совпадения признаков между реальными и сгенерированными данными
-            "loss/g/mel": loss_mel,  # Потеря на основе мел-спектрограммы
-            "loss/g/kl": loss_kl,  # Потеря на основе расхождения распределений в модели
-            "loss/g/total": loss_gen_all,  # Общая потеря Генератора
-            "metrics/mel_sim": mel_similarity,  # Сходство между сгенерированной и реальной мел-спектрограммами
-            "metrics/mse_wave": F.mse_loss(y_hat, wave),  # Среднеквадратичная ошибка между реальными и сгенерированными аудиосигналами
-            "metrics/mse_pitch": F.mse_loss(pitchf, pitch),  # Среднеквадратичная ошибка между реальными и сгенерированными интонациями
+            "grad/norm_d": grad_norm_d,
+            "grad/norm_g": grad_norm_g,
+            "learning_rate/d": current_lr_d,
+            "learning_rate/g": current_lr_g,
+            "loss/avg/d": loss_disc,
+            "loss/avg/g": loss_gen,
+            "loss/g/fm": loss_fm,
+            "loss/g/mel": loss_mel,
+            "loss/g/kl": loss_kl,
+            "loss/g/total": loss_gen_all,
+            "metrics/mel_sim": mel_similarity,
+            "metrics/mse_wave": F.mse_loss(y_hat, wave),
+            "metrics/mse_pitch": F.mse_loss(pitchf, pitch),
         }
         image_dict = {
-            "mel/slice/real": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),  # Мел-спектрограмма реальных данных
-            "mel/slice/fake": plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),  # Мел-спектрограмма сгенерированных данных
-            "pitch/real": plot_pitch_to_numpy(pitch[0].data.cpu().numpy()),  # Интонация реальных данных
-            "pitch/fake": plot_pitch_to_numpy(pitchf[0].data.cpu().numpy()),  # Интонация сгенерированных данных
+            "mel/slice/real": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
+            "mel/slice/fake": plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
+            "pitch/real": plot_pitch_to_numpy(pitch[0].data.cpu().numpy()),
+            "pitch/fake": plot_pitch_to_numpy(pitchf[0].data.cpu().numpy()),
         }
         for k, v in scalar_dict.items():
             writer.add_scalar(k, v, epoch)
@@ -358,11 +361,11 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
         save_checkpoint_cond = (epoch % hps.save_every_epoch == 0) or save_final
 
         if save_checkpoint_cond:
-            # Сохраняем чекпоинты в любом случае (регулярное или финальное сохранение)
+            # Сохранение чекпоинтов (Генератор | Дискриминатор)
             save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "G_checkpoint.pth"))
             save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "D_checkpoint.pth"))
 
-            # Определяем тип сохранения модели
+            # Сохранение модели (Промежуточные | Финальная)
             checkpoint = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
             print(
                 extract_model(
@@ -381,7 +384,6 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, loaders, writers, fn_mel_
             )
 
         if save_final:
-            # Действия при завершении обучения
             if hps.save_to_zip:
                 zip_filename = os.path.join(hps.model_dir, f"{hps.model_name}.zip")
 
