@@ -242,6 +242,7 @@ def run(hps, rank, n_gpus, device, device_id):
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
     scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
 
+    print("\nЗапуск процесса обучения модели...", flush=True)
     for epoch in range(epoch_str, hps.total_epoch + 1):
         train_and_evaluate(
             hps,
