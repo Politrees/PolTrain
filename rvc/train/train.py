@@ -107,7 +107,7 @@ class EpochRecorder:
         now_time = ttime()
         elapsed_time = round(now_time - self.last_time, 1)
         self.last_time = now_time
-        return f"[{str(datetime.timedelta(seconds=int(elapsed_time))}]"
+        return f"[{str(datetime.timedelta(seconds=int(elapsed_time)))}]"
 
 
 def main():
