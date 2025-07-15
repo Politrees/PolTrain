@@ -367,8 +367,9 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             g_path = os.path.join(hps.model_dir, "G_checkpoint.pth")
             d_path = os.path.join(hps.model_dir, "D_checkpoint.pth")
             
-            # Упрощенное создание бэкапов
+            # Создание бэкапов
             if hps.save_backup and os.path.exists(g_path) and os.path.exists(d_path):
+                print("Создание бэкапа предыдущего чекпоинта...", flush=True)
                 try:
                     os.replace(g_path, g_path.replace("checkpoint", "checkpoint_backup"))
                     os.replace(d_path, d_path.replace("checkpoint", "checkpoint_backup"))
