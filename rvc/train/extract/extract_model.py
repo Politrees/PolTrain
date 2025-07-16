@@ -15,15 +15,15 @@ def replace_keys_in_dict(d, old_key_part, new_key_part):
     return updated_dict
 
 
-def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder, final_save):
-    weights_dir = os.path.join(model_dir, "weights")
+def extract_model(hps, ckpt, epoch, step, final_save):
+    weights_dir = os.path.join(hps.model_dir, "weights")
     os.makedirs(weights_dir, exist_ok=True)
 
     if final_save:
-        filename = f"{name}.pth"
-        filepath = os.path.join(model_dir, filename)
+        filename = f"{hps.model_name}.pth"
+        filepath = os.path.join(hps.model_dir, filename)
     else:
-        filename = f"{name}_e{epoch}_s{step}.pth"
+        filename = f"{hps.model_name}_e{epoch}_s{step}.pth"
         filepath = os.path.join(weights_dir, filename)
 
     try:
@@ -50,13 +50,13 @@ def extract_model(hps, ckpt, name, epoch, step, sample_rate, model_dir, vocoder,
         ]
 
         # Основные метаданные модели
-        opt["model_name"] = name
+        opt["model_name"] = hps.model_name
         opt["epoch"] = epoch
         opt["step"] = step
-        opt["sr"] = sample_rate
+        opt["sr"] = hps.data.sample_rate
         opt["f0"] = True
         opt["version"] = "v2"
-        opt["vocoder"] = vocoder
+        opt["vocoder"] = hps.model.vocoder
 
         # Дополнительные метаданные
         opt["learning_environment"] = "PolTrain"

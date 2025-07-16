@@ -381,20 +381,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch, d_path)
 
             checkpoint = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
-            print(
-                extract_model(
-                    hps,
-                    checkpoint,
-                    hps.model_name,
-                    epoch,
-                    global_step,
-                    hps.data.sample_rate,
-                    hps.model_dir,
-                    hps.model.vocoder,
-                    final_save=save_final,
-                ),
-                flush=True,
-            )
+            print(extract_model(hps, checkpoint, epoch, global_step, final_save=save_final), flush=True)
 
         if save_final:
             if hps.save_to_zip:
