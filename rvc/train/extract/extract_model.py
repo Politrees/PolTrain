@@ -23,7 +23,7 @@ def extract_model(hps, ckpt, epoch, step, final_save):
         weights_dir = os.path.join(hps.model_dir, "weights")
         if not os.path.exists(weights_dir):
             os.makedirs(weights_dir, exist_ok=True)
-        
+
         filename = f"{hps.model_name}_e{epoch}_s{step}.pth"
         filepath = os.path.join(weights_dir, filename)
 

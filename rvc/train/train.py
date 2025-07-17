@@ -62,8 +62,8 @@ def get_hparams():
     parser.add_argument("-bs", "--batch_size", type=int, required=True)
     parser.add_argument("-sr", "--sample_rate", type=int, default=40000)
     parser.add_argument("-voc", "--vocoder", type=str, default="HiFi-GAN")
-    parser.add_argument("-pg", "--pretrainG", type=str, default="")
-    parser.add_argument("-pd", "--pretrainD", type=str, default="")
+    parser.add_argument("-pg", "--pretrain_g", type=str, default="")
+    parser.add_argument("-pd", "--pretrain_d", type=str, default="")
     parser.add_argument("-g", "--gpus", type=str, default="0")
     parser.add_argument("-sz", "--save_to_zip", type=lambda x: bool(strtobool(x)), default=False)
     parser.add_argument("-sb", "--save_backup", type=lambda x: bool(strtobool(x)), default=False)
@@ -86,17 +86,13 @@ def get_hparams():
     hparams.total_epoch = args.total_epoch
     hparams.save_every_epoch = args.save_every_epoch
     hparams.batch_size = args.batch_size
-    hparams.pretrainG = args.pretrainG
-    hparams.pretrainD = args.pretrainD
+    hparams.pretrain_g = args.pretrain_g
+    hparams.pretrain_d = args.pretrain_d
     hparams.gpus = args.gpus
     hparams.save_to_zip = args.save_to_zip
     hparams.save_backup = args.save_backup
     hparams.data.training_files = f"{experiment_dir}/data/filelist.txt"
     return hparams
-
-
-hps = get_hparams()
-global_step = 0
 
 
 class EpochRecorder:
@@ -111,6 +107,9 @@ class EpochRecorder:
 
 
 def main():
+    hps = get_hparams()
+    global_step = 0
+
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
 
@@ -128,7 +127,7 @@ def main():
     for rank, device_id in enumerate(gpus):
         subproc = mp.Process(
             target=run,
-            args=(hps, rank, n_gpus, device, device_id),
+            args=(hps, rank, n_gpus, device, device_id, global_step),
         )
         children.append(subproc)
         subproc.start()
@@ -137,9 +136,7 @@ def main():
         subproc.join()
 
 
-def run(hps, rank, n_gpus, device, device_id):
-    global global_step
-
+def run(hps, rank, n_gpus, device, device_id, global_step):
     writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval")) if rank == 0 else None
     fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
 
@@ -182,8 +179,15 @@ def run(hps, rank, n_gpus, device, device_id):
         sr=hps.data.sample_rate,
         checkpointing=False,
         randomized=True,
-    ).to(device)
-    net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm, checkpointing=False).to(device)
+    )
+    net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm, checkpointing=False)
+
+    if device.type == "cuda":
+        net_g = net_g.cuda(device_id)
+        net_d = net_d.cuda(device_id)
+    else:
+        net_g = net_g.to(device)
+        net_d = net_d.to(device)
 
     optim_g = torch.optim.AdamW(
         net_g.parameters(),
@@ -227,17 +231,17 @@ def run(hps, rank, n_gpus, device, device_id):
         global_step = 0
 
         # Если чекпоинты не загрузились, пробуем загрузить претрейны
-        if hps.pretrainG not in ("", "None", None):
+        if hps.pretrain_g not in ("", "None", None):
             if rank == 0:
-                print(f"Загрузка претрейна '{hps.pretrainG}'", flush=True)
+                print(f"Загрузка претрейна '{hps.pretrain_g}'", flush=True)
             g_model = net_g.module if hasattr(net_g, "module") else net_g
-            g_model.load_state_dict(torch.load(hps.pretrainG, map_location="cpu", weights_only=True)["model"])
+            g_model.load_state_dict(torch.load(hps.pretrain_g, map_location="cpu", weights_only=True)["model"])
 
-        if hps.pretrainD not in ("", "None", None):
+        if hps.pretrain_d not in ("", "None", None):
             if rank == 0:
-                print(f"Загрузка претрейна '{hps.pretrainD}'", flush=True)
+                print(f"Загрузка претрейна '{hps.pretrain_d}'", flush=True)
             d_model = net_d.module if hasattr(net_d, "module") else net_d
-            d_model.load_state_dict(torch.load(hps.pretrainD, map_location="cpu", weights_only=True)["model"])
+            d_model.load_state_dict(torch.load(hps.pretrain_d, map_location="cpu", weights_only=True)["model"])
 
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
     scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
@@ -248,6 +252,7 @@ def run(hps, rank, n_gpus, device, device_id):
             hps,
             rank,
             epoch,
+            global_step,
             [net_g, net_d],
             [optim_g, optim_d],
             train_loader,
@@ -259,9 +264,7 @@ def run(hps, rank, n_gpus, device, device_id):
         scheduler_d.step()
 
 
-def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, device):
-    global global_step
-
+def train_and_evaluate(hps, rank, epoch, global_step, nets, optims, train_loader, writer_eval, fn_mel_loss, device):
     net_g, net_d = nets
     optim_g, optim_d = optims
     train_loader.batch_sampler.set_epoch(epoch)
