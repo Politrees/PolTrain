@@ -135,133 +135,140 @@ def main():
     for subproc in children:
         subproc.join()
 
+    sys.exit(0)
+
 
 def run(hps, rank, n_gpus, device, device_id, global_step):
-    writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval")) if rank == 0 else None
-    fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
+    try:
+        writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval")) if rank == 0 else None
+        fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
 
-    dist.init_process_group(
-        backend="gloo" if sys.platform == "win32" or device.type != "cuda" else "nccl",
-        init_method="env://",
-        world_size=n_gpus if device.type == "cuda" else 1,
-        rank=rank if device.type == "cuda" else 0,
-    )
-
-    torch.manual_seed(hps.train.seed)
-    if torch.cuda.is_available():
-        torch.cuda.set_device(device_id)
-
-    collate_fn = TextAudioCollateMultiNSFsid()
-    train_dataset = TextAudioLoaderMultiNSFsid(hps.data)
-    train_sampler = DistributedBucketSampler(
-        train_dataset,
-        hps.batch_size * n_gpus,
-        [50, 100, 200, 300, 400, 500, 600, 700, 800, 900],
-        num_replicas=n_gpus,
-        rank=rank,
-        shuffle=True,
-    )
-    train_loader = DataLoader(
-        train_dataset,
-        num_workers=2,  # 4
-        shuffle=False,
-        pin_memory=True,
-        collate_fn=collate_fn,
-        batch_sampler=train_sampler,
-        persistent_workers=True,
-        prefetch_factor=8,
-    )
-
-    net_g = Synthesizer(
-        hps.data.filter_length // 2 + 1,
-        hps.train.segment_size // hps.data.hop_length,
-        **hps.model,
-        sr=hps.data.sample_rate,
-        checkpointing=False,
-        randomized=True,
-    )
-    net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm, checkpointing=False)
-
-    if device.type == "cuda":
-        net_g = net_g.cuda(device_id)
-        net_d = net_d.cuda(device_id)
-    else:
-        net_g = net_g.to(device)
-        net_d = net_d.to(device)
-
-    optim_g = torch.optim.AdamW(
-        net_g.parameters(),
-        hps.train.learning_rate,
-        betas=hps.train.betas,
-        eps=hps.train.eps,
-    )
-    optim_d = torch.optim.AdamW(
-        net_d.parameters(),
-        hps.train.learning_rate,
-        betas=hps.train.betas,
-        eps=hps.train.eps,
-    )
-
-    if n_gpus > 1 and device.type == "cuda":
-        net_g = DDP(net_g, device_ids=[device_id])
-        net_d = DDP(net_d, device_ids=[device_id])
-
-    # Загрузка чекпоинтов
-    checkpoint_paths = [
-        ("G_checkpoint.pth", "D_checkpoint.pth"),
-        ("G_checkpoint_backup.pth", "D_checkpoint_backup.pth")
-    ]
-
-    loaded = False
-    for g_file, d_file in checkpoint_paths:
-        g_path = os.path.join(hps.model_dir, g_file)
-        d_path = os.path.join(hps.model_dir, d_file)
-        if os.path.exists(g_path) and os.path.exists(d_path):
-            try:
-                epoch_str = attempt_load_checkpoint_pair(net_g, optim_g, g_path, net_d, optim_d, d_path)
-                epoch_str += 1
-                global_step = (epoch_str - 1) * len(train_loader)
-                loaded = True
-                break
-            except:
-                continue
-
-    if not loaded:
-        epoch_str = 1
-        global_step = 0
-
-        # Если чекпоинты не загрузились, пробуем загрузить претрейны
-        if hps.pretrain_g not in ("", "None", None):
-            if rank == 0:
-                print(f"Загрузка претрейна '{hps.pretrain_g}'", flush=True)
-            g_model = net_g.module if hasattr(net_g, "module") else net_g
-            g_model.load_state_dict(torch.load(hps.pretrain_g, map_location="cpu", weights_only=True)["model"])
-
-        if hps.pretrain_d not in ("", "None", None):
-            if rank == 0:
-                print(f"Загрузка претрейна '{hps.pretrain_d}'", flush=True)
-            d_model = net_d.module if hasattr(net_d, "module") else net_d
-            d_model.load_state_dict(torch.load(hps.pretrain_d, map_location="cpu", weights_only=True)["model"])
-
-    scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
-    scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
-
-    print("\nЗапуск процесса обучения модели...", flush=True)
-    for epoch in range(epoch_str, hps.total_epoch + 1):
-        train_and_evaluate(
-            hps,
-            rank,
-            epoch,
-            global_step,
-            [net_g, net_d],
-            [optim_g, optim_d],
-            train_loader,
-            writer_eval,
-            fn_mel_loss,
-            device,
+        dist.init_process_group(
+            backend="gloo" if sys.platform == "win32" or device.type != "cuda" else "nccl",
+            init_method="env://",
+            world_size=n_gpus if device.type == "cuda" else 1,
+            rank=rank if device.type == "cuda" else 0,
         )
-        scheduler_g.step()
-        scheduler_d.step()
+
+        torch.manual_seed(hps.train.seed)
+        if torch.cuda.is_available():
+            torch.cuda.set_device(device_id)
+
+        collate_fn = TextAudioCollateMultiNSFsid()
+        train_dataset = TextAudioLoaderMultiNSFsid(hps.data)
+        train_sampler = DistributedBucketSampler(
+            train_dataset,
+            hps.batch_size * n_gpus,
+            [50, 100, 200, 300, 400, 500, 600, 700, 800, 900],
+            num_replicas=n_gpus,
+            rank=rank,
+            shuffle=True,
+        )
+        train_loader = DataLoader(
+            train_dataset,
+            num_workers=2,  # 4
+            shuffle=False,
+            pin_memory=True,
+            collate_fn=collate_fn,
+            batch_sampler=train_sampler,
+            persistent_workers=True,
+            prefetch_factor=8,
+        )
+
+        net_g = Synthesizer(
+            hps.data.filter_length // 2 + 1,
+            hps.train.segment_size // hps.data.hop_length,
+            **hps.model,
+            sr=hps.data.sample_rate,
+            checkpointing=False,
+            randomized=True,
+        )
+        net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm, checkpointing=False)
+
+        if device.type == "cuda":
+            net_g = net_g.cuda(device_id)
+            net_d = net_d.cuda(device_id)
+        else:
+            net_g = net_g.to(device)
+            net_d = net_d.to(device)
+
+        optim_g = torch.optim.AdamW(
+            net_g.parameters(),
+            hps.train.learning_rate,
+            betas=hps.train.betas,
+            eps=hps.train.eps,
+        )
+        optim_d = torch.optim.AdamW(
+            net_d.parameters(),
+            hps.train.learning_rate,
+            betas=hps.train.betas,
+            eps=hps.train.eps,
+        )
+
+        if n_gpus > 1 and device.type == "cuda":
+            net_g = DDP(net_g, device_ids=[device_id])
+            net_d = DDP(net_d, device_ids=[device_id])
+
+        # Загрузка чекпоинтов
+        checkpoint_paths = [
+            ("G_checkpoint.pth", "D_checkpoint.pth"),
+            ("G_checkpoint_backup.pth", "D_checkpoint_backup.pth")
+        ]
+
+        loaded = False
+        for g_file, d_file in checkpoint_paths:
+            g_path = os.path.join(hps.model_dir, g_file)
+            d_path = os.path.join(hps.model_dir, d_file)
+            if os.path.exists(g_path) and os.path.exists(d_path):
+                try:
+                    epoch_str = attempt_load_checkpoint_pair(net_g, optim_g, g_path, net_d, optim_d, d_path)
+                    epoch_str += 1
+                    global_step = (epoch_str - 1) * len(train_loader)
+                    loaded = True
+                    break
+                except:
+                    continue
+
+        if not loaded:
+            epoch_str = 1
+            global_step = 0
+
+            # Если чекпоинты не загрузились, пробуем загрузить претрейны
+            if hps.pretrain_g not in ("", "None", None):
+                if rank == 0:
+                    print(f"Загрузка претрейна '{hps.pretrain_g}'", flush=True)
+                g_model = net_g.module if hasattr(net_g, "module") else net_g
+                g_model.load_state_dict(torch.load(hps.pretrain_g, map_location="cpu", weights_only=True)["model"])
+
+            if hps.pretrain_d not in ("", "None", None):
+                if rank == 0:
+                    print(f"Загрузка претрейна '{hps.pretrain_d}'", flush=True)
+                d_model = net_d.module if hasattr(net_d, "module") else net_d
+                d_model.load_state_dict(torch.load(hps.pretrain_d, map_location="cpu", weights_only=True)["model"])
+
+        scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
+        scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
+
+        print("\nЗапуск процесса обучения модели...", flush=True)
+        for epoch in range(epoch_str, hps.total_epoch + 1):
+            train_and_evaluate(
+                hps,
+                rank,
+                epoch,
+                global_step,
+                [net_g, net_d],
+                [optim_g, optim_d],
+                train_loader,
+                writer_eval,
+                fn_mel_loss,
+                device,
+            )
+            scheduler_g.step()
+            scheduler_d.step()
+    finally:
+        # Уничтожение группы процессов для корректного закрытия программы
+        if dist.is_initialized():
+            dist.destroy_process_group()
 
 
 def train_and_evaluate(hps, rank, epoch, global_step, nets, optims, train_loader, writer_eval, fn_mel_loss, device):
@@ -397,9 +404,8 @@ def train_and_evaluate(hps, rank, epoch, global_step, nets, optims, train_loader
                         zipf.write(file_path, os.path.basename(file_path))
                 print(f"Файлы модели заархивированы в `{zip_filename}`", flush=True)
 
-            print("Обучение успешно завершено.", flush=True)
-            sleep(1)
-            os._exit(2333333)
+            print("\nОбучение успешно завершено!", flush=True)
+            return
 
 
 if __name__ == "__main__":
