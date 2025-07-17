@@ -367,7 +367,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
         if save_checkpoint_cond:
             g_path = os.path.join(hps.model_dir, "G_checkpoint.pth")
             d_path = os.path.join(hps.model_dir, "D_checkpoint.pth")
-            
+
             # Создание бэкапов
             if hps.save_backup and os.path.exists(g_path) and os.path.exists(d_path):
                 print("Создание бэкапа предыдущего чекпоинта...", flush=True)
@@ -376,7 +376,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
                     os.replace(d_path, d_path.replace("checkpoint", "checkpoint_backup"))
                 except Exception as e:
                     print(f"Не удалось создать бэкап чекпоинта: {e}", flush=True)
-            
+
             save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch, g_path)
             save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch, d_path)
 

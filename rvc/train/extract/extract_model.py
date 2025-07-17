@@ -16,13 +16,14 @@ def replace_keys_in_dict(d, old_key_part, new_key_part):
 
 
 def extract_model(hps, ckpt, epoch, step, final_save):
-    weights_dir = os.path.join(hps.model_dir, "weights")
-    os.makedirs(weights_dir, exist_ok=True)
-
     if final_save:
         filename = f"{hps.model_name}.pth"
         filepath = os.path.join(hps.model_dir, filename)
     else:
+        weights_dir = os.path.join(hps.model_dir, "weights")
+        if not os.path.exists(weights_dir):
+            os.makedirs(weights_dir, exist_ok=True)
+        
         filename = f"{hps.model_name}_e{epoch}_s{step}.pth"
         filepath = os.path.join(weights_dir, filename)
 
