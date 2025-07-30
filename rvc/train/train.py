@@ -263,6 +263,7 @@ def run(hps, rank, n_gpus, device, device_id):
                 writer_eval,
                 fn_mel_loss,
                 device,
+                device_id,
             )
             scheduler_g.step()
             scheduler_d.step()
@@ -272,7 +273,7 @@ def run(hps, rank, n_gpus, device, device_id):
             dist.destroy_process_group()
 
 
-def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, device):
+def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, device, device_id):
     global global_step
 
     net_g, net_d = nets
@@ -284,9 +285,12 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
 
     epoch_recorder = EpochRecorder()
     for _, info in enumerate(train_loader):
-        info = [tensor.to(device, non_blocking=device.type=="cuda") for tensor in info]
-        phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, _, sid = info
+        if device.type == "cuda":
+            info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
+        else:
+            info = [tensor.to(device) for tensor in info]
 
+        phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, _, sid = info
         model_output = net_g(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
         y_hat, ids_slice, _, z_mask, (_, z_p, m_p, logs_p, _, logs_q) = model_output
         wave = slice_segments(wave, ids_slice * hps.data.hop_length, hps.train.segment_size, dim=3)
