@@ -42,6 +42,8 @@ from rvc.train.visualization import mel_spectrogram_similarity, plot_spectrogram
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
 
+global_step = 0
+
 
 def generate_config(config_save_path, sample_rate, vocoder):
     config_path = os.path.join("rvc", "configs", f"{sample_rate}.json")
@@ -108,7 +110,6 @@ class EpochRecorder:
 
 def main():
     hps = get_hparams()
-    global_step = 0
 
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
@@ -127,7 +128,7 @@ def main():
     for rank, device_id in enumerate(gpus):
         subproc = mp.Process(
             target=run,
-            args=(hps, rank, n_gpus, device, device_id, global_step),
+            args=(hps, rank, n_gpus, device, device_id),
         )
         children.append(subproc)
         subproc.start()
@@ -138,7 +139,8 @@ def main():
     sys.exit(0)
 
 
-def run(hps, rank, n_gpus, device, device_id, global_step):
+def run(hps, rank, n_gpus, device, device_id):
+    global global_step
     try:
         writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval")) if rank == 0 else None
         fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
@@ -255,7 +257,6 @@ def run(hps, rank, n_gpus, device, device_id, global_step):
                 hps,
                 rank,
                 epoch,
-                global_step,
                 [net_g, net_d],
                 [optim_g, optim_d],
                 train_loader,
@@ -271,7 +272,9 @@ def run(hps, rank, n_gpus, device, device_id, global_step):
             dist.destroy_process_group()
 
 
-def train_and_evaluate(hps, rank, epoch, global_step, nets, optims, train_loader, writer_eval, fn_mel_loss, device):
+def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, device):
+    global global_step
+
     net_g, net_d = nets
     optim_g, optim_d = optims
     train_loader.batch_sampler.set_epoch(epoch)
