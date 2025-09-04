@@ -114,7 +114,7 @@ class MultiScaleMelSpectrogramLoss(torch.nn.Module):
                     n_fft=window_length,
                     fmin=0,
                     fmax=None,
-                )
+                ),
             ).to(device=wav.device, dtype=torch.float32)
 
         mel_spectrogram = torch.matmul(self.mel_banks[mel_dtype_device], magnitude)

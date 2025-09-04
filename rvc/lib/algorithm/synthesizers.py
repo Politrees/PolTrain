@@ -1,5 +1,3 @@
-from typing import Optional
-
 import torch
 
 from rvc.lib.algorithm.commons import rand_slice_segments, slice_segments
@@ -11,8 +9,7 @@ from rvc.lib.algorithm.residuals import ResidualCouplingBlock
 
 
 class Synthesizer(torch.nn.Module):
-    """
-    Base Synthesizer model.
+    """Base Synthesizer model.
 
     Args:
         spec_channels (int): Number of channels in the spectrogram.
@@ -35,6 +32,7 @@ class Synthesizer(torch.nn.Module):
         sr (int): Sampling rate of the audio.
         text_enc_hidden_dim (int): Hidden dimension for the text encoder.
         kwargs: Additional keyword arguments.
+
     """
 
     def __init__(
@@ -150,11 +148,11 @@ class Synthesizer(torch.nn.Module):
         self,
         phone: torch.Tensor,
         phone_lengths: torch.Tensor,
-        pitch: Optional[torch.Tensor] = None,
-        pitchf: Optional[torch.Tensor] = None,
-        y: Optional[torch.Tensor] = None,
-        y_lengths: Optional[torch.Tensor] = None,
-        ds: Optional[torch.Tensor] = None,
+        pitch: torch.Tensor | None = None,
+        pitchf: torch.Tensor | None = None,
+        y: torch.Tensor | None = None,
+        y_lengths: torch.Tensor | None = None,
+        ds: torch.Tensor | None = None,
     ):
         g = self.emb_g(ds).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
@@ -169,24 +167,21 @@ class Synthesizer(torch.nn.Module):
                 o = self.dec(z_slice, pitchf, g=g)
                 return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
             # future use for finetuning using the entire dataset each pass
-            else:
-                o = self.dec(z, pitchf, g=g)
-                return o, None, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
-        else:
-            return None, None, x_mask, None, (None, None, m_p, logs_p, None, None)
+            o = self.dec(z, pitchf, g=g)
+            return o, None, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
+        return None, None, x_mask, None, (None, None, m_p, logs_p, None, None)
 
     @torch.jit.export
     def infer(
         self,
         phone: torch.Tensor,
         phone_lengths: torch.Tensor,
-        pitch: Optional[torch.Tensor] = None,
-        nsff0: Optional[torch.Tensor] = None,
+        pitch: torch.Tensor | None = None,
+        nsff0: torch.Tensor | None = None,
         sid: torch.Tensor = None,
-        rate: Optional[torch.Tensor] = None,
+        rate: torch.Tensor | None = None,
     ):
-        """
-        Inference of the model.
+        """Inference of the model.
 
         Args:
             phone (torch.Tensor): Phoneme sequence.
@@ -195,6 +190,7 @@ class Synthesizer(torch.nn.Module):
             nsff0 (torch.Tensor, optional): Fine-grained pitch sequence.
             sid (torch.Tensor): Speaker embedding.
             rate (torch.Tensor, optional): Rate for time-stretching.
+
         """
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)

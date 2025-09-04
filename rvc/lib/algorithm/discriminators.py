@@ -7,8 +7,7 @@ from rvc.lib.algorithm.residuals import LRELU_SLOPE
 
 
 class MultiPeriodDiscriminator(torch.nn.Module):
-    """
-    Multi-period discriminator.
+    """Multi-period discriminator.
 
     This class implements a multi-period discriminator, which is used to
     discriminate between real and fake audio signals. The discriminator
@@ -18,6 +17,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
     Args:
         use_spectral_norm (bool): Whether to use spectral normalization.
             Defaults to False.
+
     """
 
     def __init__(self, use_spectral_norm: bool = False, checkpointing: bool = False):
@@ -26,7 +26,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
         self.checkpointing = checkpointing
         self.discriminators = torch.nn.ModuleList(
             [DiscriminatorS(use_spectral_norm=use_spectral_norm)]
-            + [DiscriminatorP(p, use_spectral_norm=use_spectral_norm) for p in periods]
+            + [DiscriminatorP(p, use_spectral_norm=use_spectral_norm) for p in periods],
         )
 
     def forward(self, y, y_hat):
@@ -47,8 +47,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
 
 
 class DiscriminatorS(torch.nn.Module):
-    """
-    Discriminator for the short-term component.
+    """Discriminator for the short-term component.
 
     This class implements a discriminator for the short-term component
     of the audio signal. The discriminator is composed of a series of
@@ -67,7 +66,7 @@ class DiscriminatorS(torch.nn.Module):
                 norm_f(torch.nn.Conv1d(256, 1024, 41, 4, groups=64, padding=20)),
                 norm_f(torch.nn.Conv1d(1024, 1024, 41, 4, groups=256, padding=20)),
                 norm_f(torch.nn.Conv1d(1024, 1024, 5, 1, padding=2)),
-            ]
+            ],
         )
         self.conv_post = norm_f(torch.nn.Conv1d(1024, 1, 3, 1, padding=1))
         self.lrelu = torch.nn.LeakyReLU(LRELU_SLOPE)
@@ -84,8 +83,7 @@ class DiscriminatorS(torch.nn.Module):
 
 
 class DiscriminatorP(torch.nn.Module):
-    """
-    Discriminator for the long-term component.
+    """Discriminator for the long-term component.
 
     This class implements a discriminator for the long-term component
     of the audio signal. The discriminator is composed of a series of
@@ -97,6 +95,7 @@ class DiscriminatorP(torch.nn.Module):
         kernel_size (int): Kernel size of the convolutional layers. Defaults to 5.
         stride (int): Stride of the convolutional layers. Defaults to 3.
         use_spectral_norm (bool): Whether to use spectral normalization. Defaults to False.
+
     """
 
     def __init__(
@@ -122,10 +121,10 @@ class DiscriminatorP(torch.nn.Module):
                         (kernel_size, 1),
                         (stride, 1),
                         padding=(get_padding(kernel_size, 1), 0),
-                    )
+                    ),
                 )
-                for in_ch, out_ch in zip(in_channels, out_channels)
-            ]
+                for in_ch, out_ch in zip(in_channels, out_channels, strict=False)
+            ],
         )
 
         self.conv_post = norm_f(torch.nn.Conv2d(1024, 1, (3, 1), 1, padding=(1, 0)))

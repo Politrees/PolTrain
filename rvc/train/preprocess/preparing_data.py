@@ -48,7 +48,7 @@ class DataPreprocessor:
             self.hubert_model = self._load_hubert_model()
         elif arch_fairseq == "Fairseq2":
             from rvc.lib.fairseq import load_model
-            
+
             self.hubert_model = load_model("assets/hubert/hubert_base.pt").to(self.device).eval()
         else:
             raise ValueError("Неизвестное значение для 'arch_fairseq'! Доступные варианты: 'Fairseq', 'Fairseq2'.")
@@ -57,7 +57,7 @@ class DataPreprocessor:
         """Загрузка модели HuBERT"""
         from fairseq.checkpoint_utils import load_model_ensemble_and_task
         from fairseq.data.dictionary import Dictionary
-        
+
         torch.serialization.add_safe_globals([Dictionary])
         models, _, _ = load_model_ensemble_and_task(["assets/hubert/hubert_base.pt"], suffix="")
         return models[0].to(self.device).eval()
@@ -67,7 +67,7 @@ class DataPreprocessor:
         audio = load_audio(path, self.sample_rate)
         if f0_method == "rmvpe":
             return self.model_rmvpe.infer_from_audio(audio, 0.03)
-        elif f0_method == "rmvpe+":
+        if f0_method == "rmvpe+":
             return self.model_rmvpe.infer_from_audio_modified(audio, 0.02)
 
     def coarse_f0(self, f0):
@@ -187,7 +187,7 @@ def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2)
             f"{os.path.join(gt_wavs_dir, name)}.wav|"
             f"{os.path.join(feature_dir, name)}.npy|"
             f"{os.path.join(f0_dir, name)}.wav.npy|"
-            f"{os.path.join(f0nsf_dir, name)}.wav.npy|{sid}"
+            f"{os.path.join(f0nsf_dir, name)}.wav.npy|{sid}",
         )
 
     if include_mutes > 0:
@@ -213,6 +213,6 @@ if __name__ == "__main__":
 
         generate_filelist(exp_dir, sample_rate, include_mutes)
     except Exception as e:
-        print(f"Критическая ошибка: {str(e)}")
+        print(f"Критическая ошибка: {e!s}")
         print(traceback.format_exc())
         sys.exit(1)

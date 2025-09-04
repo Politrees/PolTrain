@@ -1,11 +1,9 @@
-from typing import List
-
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from librosa.filters import mel
 from scipy.signal import medfilt
+from torch import nn
 
 N_MELS = 128
 N_CLASS = 360
@@ -109,7 +107,7 @@ class Encoder(nn.Module):
         self.out_channel = out_channels
 
     def forward(self, x: torch.Tensor):
-        concat_tensors: List[torch.Tensor] = []
+        concat_tensors: list[torch.Tensor] = []
         x = self.bn(x)
         for i in range(self.n_encoders):
             t, x = self.layers[i](x)

@@ -26,7 +26,7 @@ def mel_spectrogram_similarity(y_hat_mel, y_mel):
     y_mel = y_mel.to(device)
 
     if y_hat_mel.shape != y_mel.shape:
-        trimmed_shape = tuple(min(dim_a, dim_b) for dim_a, dim_b in zip(y_hat_mel.shape, y_mel.shape))
+        trimmed_shape = tuple(min(dim_a, dim_b) for dim_a, dim_b in zip(y_hat_mel.shape, y_mel.shape, strict=False))
         y_hat_mel = y_hat_mel[..., : trimmed_shape[-1]]
         y_mel = y_mel[..., : trimmed_shape[-1]]
 
