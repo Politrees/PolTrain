@@ -95,7 +95,6 @@ class DiscriminatorP(torch.nn.Module):
     Args:
         period (int): Period of the discriminator.
         kernel_size (int): Kernel size of the convolutional layers. Defaults to 5.
-        stride (int): Stride of the convolutional layers. Defaults to 3.
         use_spectral_norm (bool): Whether to use spectral normalization. Defaults to False.
     """
 
@@ -103,7 +102,6 @@ class DiscriminatorP(torch.nn.Module):
         self,
         period: int,
         kernel_size: int = 5,
-        stride: int = 3,
         use_spectral_norm: bool = False,
     ):
         super().__init__()
@@ -112,6 +110,7 @@ class DiscriminatorP(torch.nn.Module):
 
         in_channels = [1, 32, 128, 512, 1024]
         out_channels = [32, 128, 512, 1024, 1024]
+        strides = [3, 3, 3, 3, 1]
 
         self.convs = torch.nn.ModuleList(
             [
@@ -124,7 +123,7 @@ class DiscriminatorP(torch.nn.Module):
                         padding=(get_padding(kernel_size, 1), 0),
                     )
                 )
-                for in_ch, out_ch in zip(in_channels, out_channels)
+                for in_ch, out_ch, stride in zip(in_channels, out_channels, strides)
             ]
         )
 
