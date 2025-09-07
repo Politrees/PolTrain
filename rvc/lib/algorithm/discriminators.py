@@ -1,5 +1,5 @@
 import torch
-from torch.nn.utils.parametrizations import spectral_norm, weight_norm
+from torch.nn.utils.parametrizations import weight_norm
 from torch.utils.checkpoint import checkpoint
 
 from rvc.lib.algorithm.commons import get_padding
@@ -15,19 +15,12 @@ class MultiPeriodDiscriminator(torch.nn.Module):
     is composed of a series of convolutional layers that are applied to
     the input signal at different periods.
 
-    Args:
-        use_spectral_norm (bool): Whether to use spectral normalization.
-            Defaults to False.
     """
 
-    def __init__(self, use_spectral_norm: bool = False, checkpointing: bool = False):
+    def __init__(self, checkpointing: bool = False):
         super().__init__()
-        periods = [2, 3, 5, 7, 11, 17, 23, 37]
         self.checkpointing = checkpointing
-        self.discriminators = torch.nn.ModuleList(
-            [DiscriminatorS(use_spectral_norm=use_spectral_norm)]
-            + [DiscriminatorP(p, use_spectral_norm=use_spectral_norm) for p in periods]
-        )
+        self.discriminators = torch.nn.ModuleList([DiscriminatorS()] + [DiscriminatorP(period) for period in [2, 3, 5, 7, 11, 17, 23, 37]])  # periods
 
     def forward(self, y, y_hat):
         y_d_rs, y_d_gs, fmap_rs, fmap_gs = [], [], [], []
@@ -55,21 +48,19 @@ class DiscriminatorS(torch.nn.Module):
     convolutional layers that are applied to the input signal.
     """
 
-    def __init__(self, use_spectral_norm: bool = False):
+    def __init__(self):
         super().__init__()
-
-        norm_f = spectral_norm if use_spectral_norm else weight_norm
         self.convs = torch.nn.ModuleList(
             [
-                norm_f(torch.nn.Conv1d(1, 16, 15, 1, padding=7)),
-                norm_f(torch.nn.Conv1d(16, 64, 41, 4, groups=4, padding=20)),
-                norm_f(torch.nn.Conv1d(64, 256, 41, 4, groups=16, padding=20)),
-                norm_f(torch.nn.Conv1d(256, 1024, 41, 4, groups=64, padding=20)),
-                norm_f(torch.nn.Conv1d(1024, 1024, 41, 4, groups=256, padding=20)),
-                norm_f(torch.nn.Conv1d(1024, 1024, 5, 1, padding=2)),
+                weight_norm(torch.nn.Conv1d(1, 16, 15, 1, padding=7)),
+                weight_norm(torch.nn.Conv1d(16, 64, 41, 4, groups=4, padding=20)),
+                weight_norm(torch.nn.Conv1d(64, 256, 41, 4, groups=16, padding=20)),
+                weight_norm(torch.nn.Conv1d(256, 1024, 41, 4, groups=64, padding=20)),
+                weight_norm(torch.nn.Conv1d(1024, 1024, 41, 4, groups=256, padding=20)),
+                weight_norm(torch.nn.Conv1d(1024, 1024, 5, 1, padding=2)),
             ]
         )
-        self.conv_post = norm_f(torch.nn.Conv1d(1024, 1, 3, 1, padding=1))
+        self.conv_post = weight_norm(torch.nn.Conv1d(1024, 1, 3, 1, padding=1))
         self.lrelu = torch.nn.LeakyReLU(LRELU_SLOPE)
 
     def forward(self, x):
@@ -95,39 +86,31 @@ class DiscriminatorP(torch.nn.Module):
     Args:
         period (int): Period of the discriminator.
         kernel_size (int): Kernel size of the convolutional layers. Defaults to 5.
-        use_spectral_norm (bool): Whether to use spectral normalization. Defaults to False.
     """
 
-    def __init__(
-        self,
-        period: int,
-        kernel_size: int = 5,
-        use_spectral_norm: bool = False,
-    ):
+    def __init__(self, period: int, kernel_size: int = 5):
         super().__init__()
         self.period = period
-        norm_f = spectral_norm if use_spectral_norm else weight_norm
-
-        in_channels = [1, 32, 128, 512, 1024]
-        out_channels = [32, 128, 512, 1024, 1024]
-        strides = [3, 3, 3, 3, 1]
-
         self.convs = torch.nn.ModuleList(
             [
-                norm_f(
+                weight_norm(
                     torch.nn.Conv2d(
-                        in_ch,
-                        out_ch,
+                        input_channel,
+                        output_channel,
                         (kernel_size, 1),
                         (stride, 1),
                         padding=(get_padding(kernel_size, 1), 0),
                     )
                 )
-                for in_ch, out_ch, stride in zip(in_channels, out_channels, strides)
+                for input_channel, output_channel, stride in zip(
+                    [1, 32, 128, 512, 1024],  # input_channels
+                    [32, 128, 512, 1024, 1024],  # output_channels
+                    [3, 3, 3, 3, 1],  # strides
+                )
             ]
         )
 
-        self.conv_post = norm_f(torch.nn.Conv2d(1024, 1, (3, 1), 1, padding=(1, 0)))
+        self.conv_post = weight_norm(torch.nn.Conv2d(1024, 1, (3, 1), 1, padding=(1, 0)))
         self.lrelu = torch.nn.LeakyReLU(LRELU_SLOPE)
 
     def forward(self, x):

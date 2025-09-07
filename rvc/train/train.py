@@ -185,7 +185,7 @@ def run(hps, rank, n_gpus, device, device_id):
             checkpointing=False,
             randomized=True,
         )
-        net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm, checkpointing=False)
+        net_d = MultiPeriodDiscriminator(checkpointing=False)
 
         if device.type == "cuda":
             net_g = net_g.cuda(device_id)
