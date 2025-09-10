@@ -42,25 +42,27 @@ class DataPreprocessor:
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
 
         # Инициализация моделей
-        self.model_rmvpe = RMVPE("assets/rmvpe/rmvpe.pt", "cuda")
+        self.model_rmvpe = RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "rmvpe.pt"), "cuda")
+        self.hubert_model = self._load_hubert_model(arch_fairseq)
 
+    def _load_hubert_model(self, arch_fairseq):
+        """Загрузка модели HuBERT"""
+        hubert_model_path = os.path.join(os.getcwd(), "rvc", "models", "embedders", "contentvec_base.pt")
         if arch_fairseq == "Fairseq":
-            self.hubert_model = self._load_hubert_model()
+            from fairseq.checkpoint_utils import load_model_ensemble_and_task
+            from fairseq.data.dictionary import Dictionary
+
+            torch.serialization.add_safe_globals([Dictionary])
+            models, _, _ = load_model_ensemble_and_task([hubert_model_path], suffix="")
+            return models[0].to(self.device).eval()
         elif arch_fairseq == "Fairseq2":
             from rvc.lib.fairseq import load_model
-            
-            self.hubert_model = load_model("assets/hubert/hubert_base.pt").to(self.device).eval()
+
+            model = load_model(hubert_model_path)
+            return model.to(self.device).eval()
         else:
             raise ValueError("Неизвестное значение для 'arch_fairseq'! Доступные варианты: 'Fairseq', 'Fairseq2'.")
 
-    def _load_hubert_model(self):
-        """Загрузка модели HuBERT"""
-        from fairseq.checkpoint_utils import load_model_ensemble_and_task
-        from fairseq.data.dictionary import Dictionary
-        
-        torch.serialization.add_safe_globals([Dictionary])
-        models, _, _ = load_model_ensemble_and_task(["assets/hubert/hubert_base.pt"], suffix="")
-        return models[0].to(self.device).eval()
 
     def compute_f0(self, path, f0_method):
         """Вычисление F0"""

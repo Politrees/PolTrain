@@ -1,22 +1,64 @@
 import os
-import subprocess
-import sys
 
-assets_folder = sys.argv[1]
-embedder_name = sys.argv[2]
+import requests
+from tqdm import tqdm
 
-os.makedirs(assets_folder, exist_ok=True)
+PREDICTORS = "https://huggingface.co/Politrees/RVC_resources/resolve/main/predictors/"
+EMBEDDERS = "https://huggingface.co/Politrees/RVC_resources/resolve/main/embedders/pytorch/"
 
-hugg_link = "https://huggingface.co/Politrees/RVC_resources/resolve/main"
-file_links = {
-    "rmvpe/rmvpe.pt": f"{hugg_link}/predictors/rmvpe.pt",
-    "hubert/hubert_base.pt": f"{hugg_link}/embedders/{embedder_name}.pt",
-}
+PREDICTORS_DIR = os.path.join(os.getcwd(), "rvc", "models", "predictors")
+EMBEDDERS_DIR = os.path.join(os.getcwd(), "rvc", "models", "embedders")
 
-for file, link in file_links.items():
-    file_path = os.path.join(assets_folder, file)
-    if not os.path.exists(file_path):
-        try:
-            subprocess.run(["wget", "-O", file_path, link], check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"Ошибка установки {file}: {e}")
+# Создаем папки, если их нет
+os.makedirs(PREDICTORS_DIR, exist_ok=True)
+os.makedirs(EMBEDDERS_DIR, exist_ok=True)
+
+
+def dl_model(link, model_name, dir_name):
+    file_path = os.path.join(dir_name, model_name)
+    if os.path.exists(file_path):
+        return  # Пропускаем загрузку, если файл уже существует
+
+    r = requests.get(f"{link}{model_name}", stream=True)
+    r.raise_for_status()
+
+    # Получаем общий размер файла
+    total_size = int(r.headers.get("content-length", 0))
+    # Используем tqdm для отображения прогресса
+    with open(file_path, "wb") as f, tqdm(
+        desc=f"Установка {model_name}",
+        total=total_size,
+        unit="iB",
+        unit_scale=True,
+        unit_divisor=1024,
+    ) as bar:
+        for chunk in r.iter_content(chunk_size=8192):
+            f.write(chunk)
+            bar.update(len(chunk))
+
+
+def check_and_install_models():
+    try:
+        predictors_names = ["rmvpe.pt"]
+        for model in predictors_names:
+            dl_model(PREDICTORS, model, PREDICTORS_DIR)
+
+        embedder_names = [
+            # "hubert_base.pt",
+            "contentvec_base.pt",
+            # "korean_hubert_base.pt",
+            # "chinese_hubert_base.pt",
+            # "japanese_hubert_base.pt",
+            # "portuguese_hubert_base.pt"
+        ]
+        for model in embedder_names:
+            dl_model(EMBEDDERS, model, EMBEDDERS_DIR)
+
+    except requests.exceptions.RequestException as e:
+        print(f"Произошла ошибка при загрузке модели: {e}")
+    except Exception as e:
+        print(f"Произошла непредвиденная ошибка: {e}")
+
+
+if __name__ == "__main__":
+    check_and_install_models()
