@@ -20,6 +20,7 @@ from scipy.io import wavfile
 from tqdm import tqdm
 
 sys.path.append(os.getcwd())
+
 from rvc.lib.audio import load_audio
 from rvc.lib.rmvpe import RMVPE
 from rvc.train.preprocess.slicer import Slicer
@@ -113,8 +114,23 @@ class DataPreprocessor:
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
 
         # Ленивая инициализация моделей (будут загружены при первом использовании)
-        self.model_rmvpe = RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "rmvpe.pt"), self.device)
-        self.hubert_model = self._load_hubert_model()
+        self._model_rmvpe = None
+        self._hubert_model = None
+
+    @property
+    def model_rmvpe(self):
+        """Ленивая загрузка модели RMVPE"""
+        if self._model_rmvpe is None:
+            model_path = os.path.join(os.getcwd(), "rvc", "models", "predictors", "rmvpe.pt")
+            self._model_rmvpe = RMVPE(model_path, self.device)
+        return self._model_rmvpe
+
+    @property
+    def hubert_model(self):
+        """Ленивая загрузка модели HuBERT"""
+        if self._hubert_model is None:
+            self._hubert_model = self._load_hubert_model()
+        return self._hubert_model
 
     def _load_hubert_model(self):
         """Загрузка модели HuBERT"""
@@ -262,81 +278,71 @@ class DataPreprocessor:
         with open(filelist_path, "w", encoding="utf-8") as f:
             f.write("\n".join(options))
 
+        print(f"Filelist сохранен: {filelist_path}")
         return len(options)
 
     def slice_audios(self, input_root: str):
         """
-        Этап 1: сегментация аудиофайлов
+        Этап 1: Нарезка аудиофайлов
+
+        Args:
+            input_root: Директория с исходными аудиофайлами
         """
-        print("\nПодготовка данных к сегментации...")
-        
+        print("=" * 50)
+        print("ЭТАП 1: Нарезка аудиофайлов")
+        print("=" * 50)
+
         try:
             # Сбор информации о файлах
-            audio_files = [
-                name for name in sorted(os.listdir(input_root))
+            infos = [
+                (os.path.join(input_root, name), idx)
+                for idx, name in enumerate(sorted(os.listdir(input_root)))
                 if name.endswith((".wav", ".mp3", ".flac", ".ogg"))
             ]
 
-            if not audio_files:
+            if not infos:
                 raise FileNotFoundError(f"Не найдено аудиофайлов в {input_root}")
 
-            total_segments = 0
-            with tqdm(audio_files, desc="Сегментация файлов") as pbar_files:
-                for idx, filename in enumerate(pbar_files):
-                    path = os.path.join(input_root, filename)
-                    
-                    try:
-                        audio = load_audio(path, self.sample_rate)
-                        audio = signal.lfilter(self.b_high, self.a_high, audio)
+            print(f"Найдено файлов: {len(infos)}")
+            print(f"Используется процессов: {self.num_processes}")
 
-                        idx1 = 0
-                        for audio_segment in self.slicer.slice(audio):
-                            i = 0
-                            while True:
-                                start = int(self.sample_rate * (self.percentage - self.overlap) * i)
-                                i += 1
+            # Параллельная обработка
+            if self.num_processes > 1:
+                processes = []
+                for i in range(self.num_processes):
+                    p = multiprocessing.Process(target=self._slice_audio_batch, args=(infos[i::self.num_processes],))
+                    processes.append(p)
+                    p.start()
 
-                                if len(audio_segment[start:]) > self.tail * self.sample_rate:
-                                    tmp_audio = audio_segment[start : start + int(self.percentage * self.sample_rate)]
-                                    self._norm_write(tmp_audio, idx, idx1)
-                                    idx1 += 1
-                                    total_segments += 1
-                                else:
-                                    tmp_audio = audio_segment[start:]
-                                    self._norm_write(tmp_audio, idx, idx1)
-                                    idx1 += 1
-                                    total_segments += 1
-                                    break
-                                
-                                # Обновляем postfix в реальном времени
-                                pbar_files.set_postfix({"Сегментов": total_segments}, refresh=True)
+                for p in processes:
+                    p.join()
+            else:
+                self._slice_audio_batch(infos)
 
-                    except Exception as e:
-                        tqdm.write(f"⚠ Ошибка: {filename} - {str(e)}")
-                        continue
-                    
-                    # Обновляем после обработки каждого файла
-                    pbar_files.set_postfix({"Сегментов": total_segments}, refresh=True)
-
-            print(f"✓ Сегментация завершена!")
+            print("✓ Нарезка завершена успешно!")
 
         except Exception as e:
-            raise RuntimeError(f"Ошибка при сегментации: {str(e)}")
+            raise RuntimeError(f"Ошибка при нарезке: {str(e)}")
 
     def extract_features(self):
         """
         Этап 2: Извлечение F0 и признаков HuBERT
         """
+        print("\n" + "=" * 50)
+        print("ЭТАП 2: Извлечение признаков")
+        print("=" * 50)
+
         # Сбор файлов для обработки
         files = sorted([f for f in os.listdir(self.wavs16k_dir) if f.endswith(".wav") and "spec" not in f])
 
         if not files:
             self._raise_no_files_error()
 
-        print(f"\nСегментов, готовых к обработке - {len(files)}")
+        print(f"Файлов для обработки: {len(files)}")
 
         # Извлечение F0
-        for file in tqdm(files, desc="Извлечение F0"):
+        print("\nИзвлечение F0...")
+        for file in tqdm(files, desc="F0"):
             try:
                 inp_path = os.path.join(self.wavs16k_dir, file)
                 f0_quant_path = os.path.join(self.f0_quant_dir, file)
@@ -352,7 +358,8 @@ class DataPreprocessor:
                 raise RuntimeError(f"Ошибка извлечения F0!\nФайл: {inp_path}\n{traceback.format_exc()}")
 
         # Извлечение признаков HuBERT
-        for file in tqdm(files, desc="Извлечение признаков HuBERT"):
+        print("\nИзвлечение признаков HuBERT...")
+        for file in tqdm(files, desc="HuBERT"):
             try:
                 wav_path = os.path.join(self.wavs16k_dir, file)
                 out_path = os.path.join(self.features_dir, file.replace('.wav', '.npy'))
@@ -366,9 +373,9 @@ class DataPreprocessor:
                     np.save(out_path, feats, allow_pickle=False)
 
             except Exception:
-                raise RuntimeError(f"Ошибка извлечения признаков HuBERT!\nФайл: {wav_path}\n{traceback.format_exc()}")
+                raise RuntimeError(f"Ошибка извлечения признаков!\nФайл: {wav_path}\n{traceback.format_exc()}")
 
-        print("✓ Обработка данных успешно завершена!")
+        print("✓ Извлечение признаков завершено!")
 
     def _raise_no_files_error(self):
         """Вывод информативной ошибки при отсутствии файлов"""
@@ -394,6 +401,15 @@ class DataPreprocessor:
         Returns:
             dict: Статистика обработки
         """
+        print("\n" + "=" * 50)
+        print("ЗАПУСК ПОЛНОЙ ОБРАБОТКИ ДАТАСЕТА")
+        print("=" * 50)
+        print(f"Входная директория: {input_root}")
+        print(f"Выходная директория: {self.exp_dir}")
+        print(f"Частота дискретизации: {self.sample_rate} Hz")
+        print(f"Метод F0: {self.f0_method}")
+        print(f"Архитектура: {self.arch_fairseq}")
+
         stats = {}
 
         try:
@@ -406,11 +422,23 @@ class DataPreprocessor:
             stats['features_extracted'] = len(os.listdir(self.features_dir))
 
             # Этап 3: Генерация filelist
+            print("\n" + "=" * 50)
+            print("ЭТАП 3: Генерация filelist")
+            print("=" * 50)
             stats['filelist_entries'] = self._generate_filelist()
+
+            # Итоговая статистика
+            print("\n" + "=" * 50)
+            print("ОБРАБОТКА ЗАВЕРШЕНА УСПЕШНО!")
+            print("=" * 50)
+            print(f"Нарезано файлов: {stats['sliced_files']}")
+            print(f"Извлечено признаков: {stats['features_extracted']}")
+            print(f"Записей в filelist: {stats['filelist_entries']}")
+
             return stats
 
         except Exception as e:
-            print(f"\n❌ Критическая ошибка: {str(e)}")
+            print(f"\n❌ КРИТИЧЕСКАЯ ОШИБКА: {str(e)}")
             print(traceback.format_exc())
             raise
 
@@ -419,7 +447,7 @@ def main():
     """Основная функция для запуска из командной строки"""
     if len(sys.argv) < 6:
         print("Использование:")
-        print("python preparing_data.py <exp_dir> <input_root> <percentage> <sample_rate> <normalize> [arch_fairseq] [f0_method] [include_mutes]")
+        print("python unified_preprocessor.py <exp_dir> <input_root> <percentage> <sample_rate> <normalize> [arch_fairseq] [f0_method] [include_mutes]")
         sys.exit(1)
 
     # Парсинг аргументов
