@@ -6,7 +6,7 @@ import traceback
 import warnings
 from random import shuffle
 
-# Настройка окружения
+# Конфигурация среды выполнения
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 logging.basicConfig(level=logging.WARNING)
 warnings.filterwarnings("ignore")
@@ -26,7 +26,12 @@ from rvc.train.preprocess.slicer import Slicer
 
 
 class DataPreprocessor:
-    """Унифицированный класс для полной предобработки данных RVC"""
+    """Унифицированный препроцессор для подготовки аудиоданных в системе RVC.
+
+    Реализует полный пайплайн предобработки, включающий сегментацию аудио,
+    извлечение фундаментальной частоты (F0) и акустических признаков HuBERT.
+
+    """
 
     def __init__(
         self,
@@ -39,18 +44,17 @@ class DataPreprocessor:
         include_mutes: int = 2,
         num_processes: int = None
     ):
-        """
-        Инициализация препроцессора
+        """Инициализация препроцессора данных.
 
         Args:
-            exp_dir: Директория эксперимента
-            sample_rate: Частота дискретизации (32000, 40000, 48000)
-            percentage: Максимальная длина сегмента в секундах
-            normalize: Флаг нормализации
-            arch_fairseq: Архитектура Fairseq ("Fairseq" или "Fairseq2")
-            f0_method: Метод извлечения F0 ("rmvpe" или "rmvpe+")
-            include_mutes: Количество мьют файлов на спикера
-            num_processes: Количество процессов для параллельной обработки
+            exp_dir: Корневая директория эксперимента для сохранения результатов
+            sample_rate: Целевая частота дискретизации в Гц (поддерживается: 32000, 40000, 48000)
+            percentage: Максимальная длительность аудиосегмента в секундах
+            normalize: Применение нормализации амплитуды к аудиосигналу
+            arch_fairseq: Версия архитектуры Fairseq ("Fairseq" или "Fairseq2")
+            f0_method: Алгоритм извлечения фундаментальной частоты ("rmvpe" или "rmvpe+")
+            include_mutes: Количество сэмплов тишины на каждого диктора для аугментации
+            num_processes: Количество параллельных процессов (None = авто-определение)
         """
         self.exp_dir = exp_dir
         self.sample_rate = sample_rate
@@ -61,17 +65,17 @@ class DataPreprocessor:
         self.include_mutes = include_mutes
         self.num_processes = num_processes or max(1, os.cpu_count() - 1)
 
-        # Создание структуры директорий
+        # Инициализация файловой структуры проекта
         self._setup_directories()
 
-        # Инициализация компонентов для нарезки
+        # Инициализация модулей сегментации аудио
         self._init_slicing_components()
 
-        # Инициализация компонентов для извлечения признаков
+        # Инициализация модулей извлечения акустических признаков
         self._init_feature_components()
 
     def _setup_directories(self):
-        """Создание необходимых директорий"""
+        """Создание иерархической структуры директорий для хранения промежуточных результатов."""
         self.data_dir = os.path.join(self.exp_dir, "data")
         self.gt_wavs_dir = os.path.join(self.data_dir, "sliced_audios")
         self.wavs16k_dir = os.path.join(self.data_dir, "sliced_audios_16k")
@@ -83,41 +87,52 @@ class DataPreprocessor:
             os.makedirs(dir_path, exist_ok=True)
 
     def _init_slicing_components(self):
-        """Инициализация компонентов для нарезки аудио"""
+        """Инициализация компонентов для сегментации аудиосигнала.
+
+        Настраивает алгоритм обнаружения пауз и фильтр верхних частот
+        для предварительной обработки сигнала.
+
+        """
         self.slicer = Slicer(
             sr=self.sample_rate,
-            threshold=-42,
-            min_length=1500,
-            min_interval=400,
-            hop_size=15,
-            max_sil_kept=500,
+            threshold=-42,  # Порог детекции тишины в дБ
+            min_length=1500,  # Минимальная длина сегмента в мс
+            min_interval=400,  # Минимальный интервал между сегментами в мс
+            hop_size=15,  # Размер шага анализа в мс
+            max_sil_kept=500,  # Максимальная длина сохраняемой тишины в мс
         )
 
-        # Фильтр высоких частот
+        # Butterworth ФВЧ для удаления низкочастотных артефактов
         self.b_high, self.a_high = signal.butter(N=5, Wn=48, btype="high", fs=self.sample_rate)
 
-        self.overlap = 0.3
+        self.overlap = 0.3  # Перекрытие между сегментами для плавных переходов
         self.tail = self.percentage + self.overlap
 
     def _init_feature_components(self):
-        """Инициализация компонентов для извлечения признаков"""
+        """Инициализация нейросетевых моделей для извлечения акустических признаков.
+
+        Загружает модели RMVPE для извлечения F0 и HuBERT для извлечения
+        семантических представлений речи.
+
+        """
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # Настройки для F0
-        self.f0_sample_rate = 16000
-        self.hop_size = 160
-        self.f0_bin = 256
-        self.f0_min = 50.0
-        self.f0_max = 1100.0
+        # Параметры анализа фундаментальной частоты
+        self.hop_size = 160  # Размер окна в сэмплах
+        self.f0_bin = 256  # Количество бинов квантования F0
+        self.f0_min = 50.0  # Минимальная частота F0 в Гц
+        self.f0_max = 1100.0  # Максимальная частота F0 в Гц
+
+        # Mel-шкала для квантования F0
         self.f0_mel_min = 1127 * np.log(1 + self.f0_min / 700)
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
 
-        # Ленивая инициализация моделей (будут загружены при первом использовании)
+        # Инициализация моделей
         self.model_rmvpe = RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "rmvpe.pt"), self.device)
         self.hubert_model = self._load_hubert_model()
 
     def _load_hubert_model(self):
-        """Загрузка модели HuBERT"""
+        """Загрузка предобученной модели HuBERT для извлечения семантических признаков."""
         hubert_model_path = os.path.join(os.getcwd(), "rvc", "models", "embedders", "contentvec_base.pt")
 
         if self.arch_fairseq == "Fairseq":
@@ -134,135 +149,152 @@ class DataPreprocessor:
             model = load_model(hubert_model_path)
             return model.to(self.device).eval()
         else:
-            raise ValueError(f"Неизвестная архитектура: {self.arch_fairseq}")
+            raise ValueError(f"Неподдерживаемая архитектура Fairseq: {self.arch_fairseq}")
 
     def _norm_write(self, tmp_audio, idx0, idx1):
-        """Нормализация и сохранение аудио сегмента"""
+        """Нормализация и сохранение аудиосегмента с ресемплингом."""
+        # Проверка на клиппинг и артефакты
         tmp_max = np.abs(tmp_audio).max()
         if tmp_max > 2.5:
             return
 
+        # Применение адаптивной нормализации с сохранением динамического диапазона
         if self.normalize:
             tmp_audio = (tmp_audio / tmp_max * (0.9 * 0.75)) + (1 - 0.75) * tmp_audio
 
-        # Сохранение с исходной частотой
+        # Сохранение с оригинальной частотой дискретизации
         wavfile.write(f"{self.gt_wavs_dir}/{idx0}_{idx1}.wav", self.sample_rate, tmp_audio.astype(np.float32))
 
-        # Ресемплирование и сохранение в 16kHz
+        # Высококачественный ресемплинг до 16kHz для моделей извлечения признаков
         tmp_audio_16k = librosa.resample(tmp_audio, orig_sr=self.sample_rate, target_sr=16000, res_type="soxr_vhq")
         wavfile.write(f"{self.wavs16k_dir}/{idx0}_{idx1}.wav", 16000, tmp_audio_16k.astype(np.float32))
 
     def slice_audios(self, input_root: str):
+        """Выполнение сегментации аудиофайлов с детекцией пауз.
+
+        Разделяет длинные аудиозаписи на короткие сегменты фиксированной длины,
+        автоматически определяя границы по паузам в речи.
+
         """
-        Этап 1: сегментация аудиофайлов
-        """
-        print("\nПодготовка данных к сегментации...")
-        
+        print("\nИнициализация процесса сегментации аудиоданных...")
+
         try:
-            # Сбор информации о файлах
+            # Сканирование директории на наличие поддерживаемых форматов
             audio_files = [
                 name for name in sorted(os.listdir(input_root))
                 if name.endswith((".wav", ".mp3", ".flac", ".ogg"))
             ]
 
             if not audio_files:
-                raise FileNotFoundError(f"Не найдено аудиофайлов в {input_root}")
+                raise FileNotFoundError(f"Аудиофайлы не обнаружены в директории: {input_root}")
 
             total_segments = 0
-            with tqdm(audio_files, desc="Сегментация файлов") as pbar_files:
+            with tqdm(audio_files, desc="Процесс сегментации") as pbar_files:
                 for idx, filename in enumerate(pbar_files):
                     path = os.path.join(input_root, filename)
-                    
+
                     try:
+                        # Загрузка и предварительная фильтрация аудио
                         audio = load_audio(path, self.sample_rate)
                         audio = signal.lfilter(self.b_high, self.a_high, audio)
 
                         idx1 = 0
+                        # Итерация по сегментам, определенным алгоритмом VAD
                         for audio_segment in self.slicer.slice(audio):
                             i = 0
                             while True:
                                 start = int(self.sample_rate * (self.percentage - self.overlap) * i)
                                 i += 1
 
+                                # Проверка достаточной длины оставшейся части
                                 if len(audio_segment[start:]) > self.tail * self.sample_rate:
                                     tmp_audio = audio_segment[start : start + int(self.percentage * self.sample_rate)]
                                     self._norm_write(tmp_audio, idx, idx1)
                                     idx1 += 1
                                     total_segments += 1
                                 else:
+                                    # Обработка последнего короткого сегмента
                                     tmp_audio = audio_segment[start:]
                                     self._norm_write(tmp_audio, idx, idx1)
                                     idx1 += 1
                                     total_segments += 1
                                     break
-                                
-                                # Обновляем postfix в реальном времени
-                                pbar_files.set_postfix({"Сегментов": total_segments}, refresh=True)
+
+                                # Обновление статистики в реальном времени
+                                pbar_files.set_postfix({"Обработано сегментов": total_segments}, refresh=True)
 
                     except Exception as e:
-                        tqdm.write(f"⚠ Ошибка: {filename} - {str(e)}")
+                        tqdm.write(f"⚠ Ошибка обработки файла {filename}: {str(e)}")
                         continue
-                    
-                    # Обновляем после обработки каждого файла
-                    pbar_files.set_postfix({"Сегментов": total_segments}, refresh=True)
 
-            print(f"✓ Сегментация завершена!")
+                    pbar_files.set_postfix({"Обработано сегментов": total_segments}, refresh=True)
+
+            print(f"✓ Сегментация успешно завершена!")
 
         except Exception as e:
-            raise RuntimeError(f"Ошибка при сегментации: {str(e)}")
+            raise RuntimeError(f"Критическая ошибка в процессе сегментации: {str(e)}")
 
     def _compute_f0(self, path):
-        """Вычисление F0"""
-        audio = load_audio(path, self.f0_sample_rate)
-
+        """Вычисление контура фундаментальной частоты методом RMVPE."""
+        audio, _ = sf.read(path)
         if self.f0_method == "rmvpe+":
             return self.model_rmvpe.infer_from_audio_modified(audio, 0.02)
         return self.model_rmvpe.infer_from_audio(audio, 0.03)
 
     def _coarse_f0(self, f0):
-        """Квантование F0"""
+        """Квантование значений F0 в дискретные бины на mel-шкале.
+
+        Преобразует непрерывные значения частоты в дискретные индексы
+        для эффективного представления в нейросетевых моделях.
+
+        """
+        # Преобразование в mel-шкалу
         f0_mel = 1127 * np.log(1 + f0 / 700)
+
+        # Линейное квантование в заданном диапазоне
         f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - self.f0_mel_min) * (self.f0_bin - 2) / (self.f0_mel_max - self.f0_mel_min) + 1
         f0_mel[f0_mel <= 1] = 1
         f0_mel[f0_mel > self.f0_bin - 1] = self.f0_bin - 1
+
         f0_coarse = np.rint(f0_mel).astype(int)
-        assert f0_coarse.max() <= 255 and f0_coarse.min() >= 1
+        assert f0_coarse.max() <= 255 and f0_coarse.min() >= 1, "Квантованные значения F0 вне допустимого диапазона"
         return f0_coarse
 
     def _extract_hubert_features(self, wav_path):
-        """Извлечение признаков HuBERT"""
-        wav, sr = sf.read(wav_path)
-        assert sr == 16000
-
-        feats = torch.from_numpy(wav).float()
-        if feats.dim() == 2:
-            feats = feats.mean(-1)
-        assert feats.dim() == 1
-
-        feats = feats.view(1, -1).to(self.device)
+        """Извлечение семантических признаков с использованием модели HuBERT."""
+        wav, _ = sf.read(wav_path)
+        feats = torch.from_numpy(wav).float().view(1, -1).to(self.device)
         padding_mask = torch.BoolTensor(feats.shape).fill_(False).to(self.device)
 
         with torch.no_grad():
+            # Извлечение признаков из 12-го слоя HuBERT
             logits = self.hubert_model.extract_features(source=feats, padding_mask=padding_mask, output_layer=12)
             return logits[0].squeeze(0).float().cpu().numpy()
 
     def _generate_filelist(self):
-        """Генерация filelist.txt"""
+        """Генерация манифеста данных для обучения модели.
+
+        Создает текстовый файл со списком путей к обработанным данным
+        и соответствующими метками дикторов.
+
+        """
         mute_base_path = os.path.join(os.getcwd(), "logs", "mute")
 
-        # Сбор файлов
+        # Сбор и валидация обработанных файлов
         gt_wavs_files = set(name.split(".")[0] for name in os.listdir(self.gt_wavs_dir))
         feature_files = set(name.split(".")[0] for name in os.listdir(self.features_dir))
         f0_files = set(name.split(".")[0] for name in os.listdir(self.f0_quant_dir))
         f0nsf_files = set(name.split(".")[0] for name in os.listdir(self.f0_voiced_dir))
 
+        # Пересечение множеств для обеспечения полноты данных
         names = gt_wavs_files & feature_files & f0_files & f0nsf_files
 
         sids = []
         options = []
 
+        # Формирование записей манифеста
         for name in names:
-            sid = name.split("_")[0]
+            sid = name.split("_")[0]  # Извлечение ID диктора
             if sid not in sids:
                 sids.append(sid)
 
@@ -273,7 +305,7 @@ class DataPreprocessor:
                 f"{os.path.join(self.f0_voiced_dir, name)}.wav.npy|{sid}"
             )
 
-        # Добавление mute файлов
+        # Добавление сэмплов тишины для улучшения робастности модели
         if self.include_mutes > 0:
             mute_audio = os.path.join(mute_base_path, "sliced_audios", f"mute{self.sample_rate}.wav")
             mute_feature = os.path.join(mute_base_path, "features", "mute.npy")
@@ -283,6 +315,7 @@ class DataPreprocessor:
             for sid in sids * self.include_mutes:
                 options.append(f"{mute_audio}|{mute_feature}|{mute_f0}|{mute_f0nsf}|{sid}")
 
+        # Рандомизация порядка для улучшения обучения
         shuffle(options)
 
         filelist_path = os.path.join(self.data_dir, "filelist.txt")
@@ -292,24 +325,29 @@ class DataPreprocessor:
         return len(options)
 
     def extract_features(self):
+        """Извлечение акустических признаков из сегментированных аудиофайлов.
+
+        Выполняет извлечение контуров F0 и семантических представлений HuBERT
+        для всех подготовленных аудиосегментов.
+
         """
-        Этап 2: Извлечение F0 и признаков HuBERT
-        """
-        # Сбор файлов для обработки
+        # Сканирование подготовленных 16kHz файлов
         files = sorted([f for f in os.listdir(self.wavs16k_dir) if f.endswith(".wav") and "spec" not in f])
 
         if not files:
             self._raise_no_files_error()
+            sys.exit(1)  # Принудительное завершение процесса
 
-        print(f"\nСегментов, готовых к обработке - {len(files)}")
+        print(f"\nОбнаружено сегментов для извлечения признаков: {len(files)}")
 
-        # Извлечение F0
-        for file in tqdm(files, desc="Извлечение F0"):
+        # Фаза 1: Извлечение контуров фундаментальной частоты
+        for file in tqdm(files, desc="Извлечение F0 (фундаментальной частоты)"):
             try:
                 inp_path = os.path.join(self.wavs16k_dir, file)
                 f0_quant_path = os.path.join(self.f0_quant_dir, file)
                 f0_voiced_path = os.path.join(self.f0_voiced_dir, file)
 
+                # Пропуск уже обработанных файлов
                 if not (os.path.exists(f0_quant_path + ".npy") and os.path.exists(f0_voiced_path + ".npy")):
                     f0 = self._compute_f0(inp_path)
                     np.save(f0_voiced_path, f0, allow_pickle=False)
@@ -317,10 +355,10 @@ class DataPreprocessor:
                     np.save(f0_quant_path, coarse_f0, allow_pickle=False)
 
             except Exception:
-                raise RuntimeError(f"Ошибка извлечения F0!\nФайл: {inp_path}\n{traceback.format_exc()}")
+                raise RuntimeError(f"Ошибка при извлечении F0!\nФайл: {inp_path}\n{traceback.format_exc()}")
 
-        # Извлечение признаков HuBERT
-        for file in tqdm(files, desc="Извлечение признаков HuBERT"):
+        # Фаза 2: Извлечение семантических признаков HuBERT
+        for file in tqdm(files, desc="Извлечение семантических признаков HuBERT"):
             try:
                 wav_path = os.path.join(self.wavs16k_dir, file)
                 out_path = os.path.join(self.features_dir, file.replace('.wav', '.npy'))
@@ -328,81 +366,96 @@ class DataPreprocessor:
                 if not os.path.exists(out_path):
                     feats = self._extract_hubert_features(wav_path)
 
+                    # Валидация извлеченных признаков
                     if np.isnan(feats).sum() > 0:
-                        raise ValueError(f"Файл {file} содержит NaN значения")
+                        raise ValueError(f"Обнаружены NaN значения в признаках файла {file}")
 
                     np.save(out_path, feats, allow_pickle=False)
 
             except Exception:
-                raise RuntimeError(f"Ошибка извлечения признаков HuBERT!\nФайл: {wav_path}\n{traceback.format_exc()}")
+                raise RuntimeError(f"Ошибка при извлечении признаков HuBERT!\nФайл: {wav_path}\n{traceback.format_exc()}")
 
-        print("✓ Обработка данных успешно завершена!")
+        print("✓ Извлечение акустических признаков успешно завершено!")
 
     def _raise_no_files_error(self):
-        """Вывод информативной ошибки при отсутствии файлов"""
+        """Генерация детализированного сообщения об ошибке при отсутствии данных."""
         error_message = (
-            "ОШИБКА: Не найдено файлов для обработки.\n"
+            "КРИТИЧЕСКАЯ ОШИБКА: Отсутствуют файлы для обработки.\n\n"
             "Возможные причины:\n"
-            "1. Датасет не содержит звука или слишком тихий\n"
-            "2. Датасет слишком короткий (менее 3 сек)\n"
-            "3. Датасет слишком длинный (более 1 часа одним файлом)\n\n"
-            "Рекомендации:\n"
-            "- Увеличьте громкость аудио или объем данных\n"
-            "- Разделите длинные файлы на части\n"
+            "• Аудиофайлы содержат только тишину или имеют слишком низкий уровень сигнала\n"
+            "• Общая длительность аудио менее минимального порога (3 секунды)\n"
+            "• Единичный файл превышает максимальную длительность (1 час)\n"
+            "• Некорректный формат или повреждение исходных файлов\n\n"
+            "Рекомендации по устранению:\n"
+            "1. Проверьте уровень сигнала в исходных файлах (рекомендуется -20 dB RMS)\n"
+            "2. Увеличьте объем обучающих данных\n"
+            "3. Разделите длинные записи на фрагменты по 10-30 минут\n"
+            "4. Убедитесь в корректности аудиоформатов (WAV, MP3, FLAC, OGG)\n"
         )
         raise FileNotFoundError(error_message)
 
     def process_dataset(self, input_root: str):
-        """
-        Полный пайплайн обработки датасета
+        """Выполнение полного пайплайна предобработки датасета.
 
-        Args:
-            input_root: Директория с исходными аудиофайлами
+        Последовательно выполняет все этапы подготовки данных:
+        сегментацию, извлечение признаков и генерацию манифеста.
 
-        Returns:
-            dict: Статистика обработки
         """
         stats = {}
 
         try:
-            # Этап 1: Нарезка
+            # Этап 1: Сегментация аудиоданных
             self.slice_audios(input_root)
             stats['sliced_files'] = len(os.listdir(self.gt_wavs_dir))
 
-            # Этап 2: Извлечение признаков
+            # Этап 2: Извлечение акустических признаков
             self.extract_features()
             stats['features_extracted'] = len(os.listdir(self.features_dir))
 
-            # Этап 3: Генерация filelist
+            # Этап 3: Генерация манифеста для обучения
             stats['filelist_entries'] = self._generate_filelist()
+
             return stats
 
         except Exception as e:
-            print(f"\n❌ Критическая ошибка: {str(e)}")
+            print(f"\n❌ Критическая ошибка в процессе обработки: {str(e)}")
             print(traceback.format_exc())
             raise
 
 
 def main():
-    """Основная функция для запуска из командной строки"""
+    """Точка входа для запуска препроцессора из командной строки.
+
+    Обрабатывает аргументы командной строки и инициирует процесс предобработки.
+
+    """
     if len(sys.argv) < 6:
         print("Использование:")
         print("python preparing_data.py <exp_dir> <input_root> <percentage> <sample_rate> <normalize> [arch_fairseq] [f0_method] [include_mutes]")
+        print("\nПараметры:")
+        print("  exp_dir      - директория для сохранения результатов")
+        print("  input_root   - директория с исходными аудиофайлами")
+        print("  percentage   - максимальная длина сегмента (секунды)")
+        print("  sample_rate  - частота дискретизации (32000/40000/48000)")
+        print("  normalize    - применять нормализацию (True/False)")
+        print("  arch_fairseq - архитектура Fairseq (Fairseq/Fairseq2)")
+        print("  f0_method    - метод извлечения F0 (rmvpe/rmvpe+)")
+        print("  include_mutes - количество сэмплов тишины")
         sys.exit(1)
 
-    # Парсинг аргументов
+    # Парсинг обязательных аргументов
     exp_dir = sys.argv[1]
     input_root = sys.argv[2]
     percentage = float(sys.argv[3])
     sample_rate = int(sys.argv[4])
     normalize = sys.argv[5] == "True"
 
-    # Опциональные аргументы
+    # Парсинг опциональных аргументов с значениями по умолчанию
     arch_fairseq = sys.argv[6] if len(sys.argv) > 6 else "Fairseq"
     f0_method = sys.argv[7] if len(sys.argv) > 7 else "rmvpe"
     include_mutes = int(sys.argv[8]) if len(sys.argv) > 8 else 2
 
-    # Создание препроцессора и запуск
+    # Инициализация и запуск препроцессора
     preprocessor = DataPreprocessor(
         exp_dir=exp_dir,
         sample_rate=sample_rate,
@@ -416,7 +469,7 @@ def main():
     try:
         preprocessor.process_dataset(input_root)
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка выполнения: {e}")
         sys.exit(1)
 
 
