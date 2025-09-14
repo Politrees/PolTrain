@@ -8,9 +8,6 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 logging.basicConfig(level=logging.WARNING)
 warnings.filterwarnings("ignore")
 
-import multiprocessing
-import traceback
-import time
 from random import shuffle
 import librosa
 import numpy as np
@@ -57,7 +54,6 @@ class DataPreprocessor:
             include_mutes: Количество сэмплов тишины на каждого диктора для аугментации
         """
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.num_processes = max(1, os.cpu_count() - 1)
 
         self.exp_dir = exp_dir
         self.percentage = percentage
@@ -108,6 +104,8 @@ class DataPreprocessor:
     def _load_hubert_model(self):
         """Загрузка предобученной модели HuBERT для извлечения семантических признаков."""
         hubert_model_path = os.path.join(now_dir, "rvc", "models", "embedders", "contentvec_base.pt")
+        if not os.path.exists(hubert_model_path):
+            raise FileNotFoundError(f"Модель HuBERT не найдена: {hubert_model_path}")
 
         if self.arch_fairseq == "Fairseq":
             from fairseq.checkpoint_utils import load_model_ensemble_and_task
@@ -189,61 +187,60 @@ class DataPreprocessor:
         """
         print("\nИнициализация процесса сегментации аудиоданных...")
 
-        try:
-            # Сканирование директории на наличие поддерживаемых форматов
-            audio_files = [
-                name for name in sorted(os.listdir(input_root))
-                if name.endswith((".wav", ".mp3", ".flac", ".ogg"))
-            ]
+        if not os.path.exists(input_root):
+            raise FileNotFoundError(f"Директория не существует: {input_root}")
 
-            if not audio_files:
-                raise FileNotFoundError(f"Аудиофайлы не обнаружены в директории: {input_root}")
+        # Сканирование директории на наличие поддерживаемых форматов
+        audio_files = [name for name in sorted(os.listdir(input_root)) if name.endswith((".wav", ".mp3", ".flac", ".ogg"))]
+        if not audio_files:
+            raise FileNotFoundError(f"Аудиофайлы не обнаружены в директории: {input_root}")
 
-            total_segments = 0
-            with tqdm(audio_files, desc="Процесс сегментации") as pbar_files:
-                for idx, filename in enumerate(pbar_files):
-                    path = os.path.join(input_root, filename)
+        total_segments = 0
+        with tqdm(audio_files, desc="Процесс сегментации") as pbar_files:
+            for idx, filename in enumerate(pbar_files):
+                path = os.path.join(input_root, filename)
 
-                    try:
-                        # Загрузка и предварительная фильтрация аудио
-                        audio = load_audio(path, self.sample_rate)
-                        audio = signal.lfilter(self.b_high, self.a_high, audio)
+                try:
+                    # Загрузка и предварительная фильтрация аудио
+                    audio = load_audio(path, self.sample_rate)
+                    audio = signal.lfilter(self.b_high, self.a_high, audio)
 
-                        idx1 = 0
-                        # Итерация по сегментам, определенным алгоритмом VAD
-                        for audio_segment in self.slicer.slice(audio):
-                            i = 0
-                            while True:
-                                start = int(self.sample_rate * (self.percentage - self.overlap) * i)
-                                i += 1
+                    idx1 = 0
+                    # Итерация по сегментам, определенным алгоритмом VAD
+                    for audio_segment in self.slicer.slice(audio):
+                        i = 0
+                        while True:
+                            start = int(self.sample_rate * (self.percentage - self.overlap) * i)
+                            i += 1
 
-                                # Проверка достаточной длины оставшейся части
-                                if len(audio_segment[start:]) > self.tail * self.sample_rate:
-                                    tmp_audio = audio_segment[start : start + int(self.percentage * self.sample_rate)]
+                            # Проверка достаточной длины оставшейся части
+                            if len(audio_segment[start:]) > self.tail * self.sample_rate:
+                                tmp_audio = audio_segment[start : start + int(self.percentage * self.sample_rate)]
+                                self._norm_res_write(tmp_audio, idx, idx1)
+                                idx1 += 1
+                                total_segments += 1
+                            else:
+                                # Обработка последнего короткого сегмента
+                                tmp_audio = audio_segment[start:]
+                                if len(tmp_audio) > 0:  # Проверка на пустой сегмент
                                     self._norm_res_write(tmp_audio, idx, idx1)
                                     idx1 += 1
                                     total_segments += 1
-                                else:
-                                    # Обработка последнего короткого сегмента
-                                    tmp_audio = audio_segment[start:]
-                                    self._norm_res_write(tmp_audio, idx, idx1)
-                                    idx1 += 1
-                                    total_segments += 1
-                                    break
+                                break
 
-                                # Обновление статистики в реальном времени
-                                pbar_files.set_postfix({"Обработано сегментов": total_segments}, refresh=True)
+                            # Обновление статистики в реальном времени
+                            pbar_files.set_postfix({"Обработано сегментов": total_segments}, refresh=True)
 
-                    except Exception as e:
-                        tqdm.write(f"⚠ Ошибка обработки файла {filename}: {str(e)}")
-                        continue
+                except Exception as e:
+                    tqdm.write(f"⚠ Ошибка обработки файла {filename}: {str(e)}")
+                    raise
 
-                    pbar_files.set_postfix({"Обработано сегментов": total_segments}, refresh=True)
-
-            print(f"✓ Сегментация успешно завершена!")
-
-        except Exception as e:
-            raise RuntimeError(f"Критическая ошибка в процессе сегментации: {str(e)}")
+                pbar_files.set_postfix({"Обработано сегментов": total_segments}, refresh=True)
+        
+        if total_segments == 0:
+            raise RuntimeError("Не удалось создать ни одного сегмента из входных данных")
+            
+        print(f"✓ Сегментация успешно завершена!")
 
     def extract_acoustic_features(self):
         """Извлечение акустических признаков из сегментированных аудиофайлов.
@@ -254,7 +251,6 @@ class DataPreprocessor:
         """
         # Сканирование подготовленных 16kHz файлов
         files = sorted([f for f in os.listdir(self.wavs16k_dir) if f.endswith(".wav") and "spec" not in f])
-
         if not files:
             self._raise_no_files_error()
             sys.exit(1)  # Принудительное завершение процесса
@@ -275,8 +271,8 @@ class DataPreprocessor:
                     coarse_f0 = self._quantization_f0(f0)
                     np.save(f0_quant_path, coarse_f0, allow_pickle=False)
 
-            except Exception:
-                raise RuntimeError(f"Ошибка при извлечении F0!\nФайл: {inp_path}\n{traceback.format_exc()}")
+            except Exception as e:
+                raise RuntimeError(f"Ошибка извлечения F0 для {file}: {e}")
 
         # Фаза 2: Извлечение семантических признаков HuBERT
         for file in tqdm(files, desc="Извлечение семантических признаков HuBERT"):
@@ -293,8 +289,11 @@ class DataPreprocessor:
 
                     np.save(out_path, feats, allow_pickle=False)
 
-            except Exception:
-                raise RuntimeError(f"Ошибка при извлечении признаков HuBERT!\nФайл: {wav_path}\n{traceback.format_exc()}")
+            except Exception as e:
+                raise RuntimeError(f"Ошибка извлечения признаков HuBERT для {file}: {e}")
+
+        if len(failed_f0) + len(failed_features) == len(files) * 2:
+            raise RuntimeError("Не удалось обработать ни один файл")
 
         print("✓ Извлечение акустических признаков успешно завершено!")
     
@@ -315,6 +314,8 @@ class DataPreprocessor:
 
         # Пересечение множеств для обеспечения полноты данных
         names = gt_wavs_files & feature_files & f0_files & f0nsf_files
+        if not names:
+            raise RuntimeError("Нет полностью обработанных файлов для создания манифеста")
 
         sids = []
         options = []
@@ -337,7 +338,6 @@ class DataPreprocessor:
             mute_feature = os.path.join(mute_base_path, "features", "mute.npy")
             mute_f0 = os.path.join(mute_base_path, "f0_quantized", "mute.wav.npy")
             mute_f0nsf = os.path.join(mute_base_path, "f0_voiced", "mute.wav.npy")
-
             for sid in sids * self.include_mutes:
                 options.append(f"{mute_audio}|{mute_feature}|{mute_f0}|{mute_f0nsf}|{sid}")
 
@@ -364,9 +364,7 @@ class DataPreprocessor:
             self.generate_filelist()
 
         except Exception as e:
-            print(f"\n❌ Критическая ошибка в процессе обработки: {str(e)}")
-            print(traceback.format_exc())
-            raise
+            raise RuntimeError(f"\n❌ Критическая ошибка в процессе обработки: {str(e)}")
 
     def _raise_no_files_error(self):
         """Генерация детализированного сообщения об ошибке при отсутствии данных."""
@@ -411,29 +409,29 @@ def main():
     input_root = sys.argv[2]
     percentage = float(sys.argv[3])
     sample_rate = int(sys.argv[4])
-    normalize = sys.argv[5] == "True"
+    normalize = sys.argv[5].lower() in ["true", "1", "yes"]
 
     # Парсинг опциональных аргументов с значениями по умолчанию
     arch_fairseq = sys.argv[6] if len(sys.argv) > 6 else "Fairseq"
     f0_method = sys.argv[7] if len(sys.argv) > 7 else "rmvpe"
     include_mutes = int(sys.argv[8]) if len(sys.argv) > 8 else 2
+    if include_mutes < 0 or include_mutes > 10:
+        raise ValueError("include_mutes не может быть отрицательным или более 10")
 
     # Инициализация и запуск препроцессора
-    preprocessor = DataPreprocessor(
-        exp_dir=exp_dir,
-        sample_rate=sample_rate,
-        percentage=percentage,
-        normalize=normalize,
-        arch_fairseq=arch_fairseq,
-        f0_method=f0_method,
-        include_mutes=include_mutes
-    )
-
     try:
+        preprocessor = DataPreprocessor(
+            exp_dir=exp_dir,
+            sample_rate=sample_rate,
+            percentage=percentage,
+            normalize=normalize,
+            arch_fairseq=arch_fairseq,
+            f0_method=f0_method,
+            include_mutes=include_mutes
+        )
         preprocessor.process_dataset(input_root)
     except Exception as e:
-        print(f"Ошибка выполнения: {e}")
-        sys.exit(1)
+        raise RuntimeError(f"\n❌ Ошибка выполнения: {e}")
 
 
 if __name__ == "__main__":
