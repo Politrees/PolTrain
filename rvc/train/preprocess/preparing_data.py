@@ -292,9 +292,6 @@ class DataPreprocessor:
             except Exception as e:
                 raise RuntimeError(f"Ошибка извлечения признаков HuBERT для {file}: {e}")
 
-        if len(failed_f0) + len(failed_features) == len(files) * 2:
-            raise RuntimeError("Не удалось обработать ни один файл")
-
         print("✓ Извлечение акустических признаков успешно завершено!")
     
     def generate_filelist(self):
