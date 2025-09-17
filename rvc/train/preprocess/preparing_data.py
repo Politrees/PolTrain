@@ -11,7 +11,6 @@ warnings.filterwarnings("ignore")
 from random import shuffle
 import librosa
 import numpy as np
-import soundfile as sf
 import torch
 from scipy import signal
 from scipy.io import wavfile
@@ -143,7 +142,7 @@ class DataPreprocessor:
 
     def _calculation_f0(self, path):
         """Вычисление контура фундаментальной частоты методом RMVPE."""
-        audio, _ = sf.read(path)
+        audio = load_audio(path, 16000)
         if self.f0_method == "rmvpe+":
             return self.model_rmvpe.infer_from_audio_modified(audio, 0.02)
         return self.model_rmvpe.infer_from_audio(audio, 0.03)
@@ -169,7 +168,7 @@ class DataPreprocessor:
 
     def _extract_semantic_features(self, wav_path):
         """Извлечение семантических признаков с использованием модели HuBERT."""
-        wav, _ = sf.read(wav_path)
+        wav = load_audio(wav_path, 16000)
         feats = torch.from_numpy(wav).float().view(1, -1).to(self.device)
         padding_mask = torch.BoolTensor(feats.shape).fill_(False).to(self.device)
 
