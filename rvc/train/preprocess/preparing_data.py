@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
-from rvc.lib.audio import load_audio
+from rvc.lib.audio import load_audio, load_audio_16k
 from rvc.lib.rmvpe import RMVPE
 from rvc.train.preprocess.slicer import Slicer
 
@@ -143,6 +143,7 @@ class DataPreprocessor:
     def _calculation_f0(self, path):
         """Вычисление контура фундаментальной частоты методом RMVPE."""
         audio = load_audio(path, 16000)
+        # audio = load_audio_16k(path)
         if self.f0_method == "rmvpe+":
             return self.model_rmvpe.infer_from_audio_modified(audio, 0.02)
         return self.model_rmvpe.infer_from_audio(audio, 0.03)
@@ -169,6 +170,7 @@ class DataPreprocessor:
     def _extract_semantic_features(self, wav_path):
         """Извлечение семантических признаков с использованием модели HuBERT."""
         wav = load_audio(wav_path, 16000)
+        # wav = load_audio_16k(wav_path)
         feats = torch.from_numpy(wav).float().view(1, -1).to(self.device)
         padding_mask = torch.BoolTensor(feats.shape).fill_(False).to(self.device)
 
