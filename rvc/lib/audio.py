@@ -14,3 +14,11 @@ def load_audio(file, sample_rate):
         raise RuntimeError(f"Возникла ошибка при загрузке аудио: {error}")
 
     return audio.flatten()
+
+def load_audio_16k(file):
+    try:
+        audio, sr = librosa.load(file, sr=16000)
+    except Exception as error:
+        raise RuntimeError(f"Возникла ошибка при загрузке аудио: {error}")
+
+    return audio.flatten()
