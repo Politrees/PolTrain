@@ -142,8 +142,7 @@ class DataPreprocessor:
 
     def _calculation_f0(self, path):
         """Вычисление контура фундаментальной частоты методом RMVPE."""
-        audio = load_audio(path, 16000)
-        # audio = load_audio_16k(path)
+        audio = load_audio_16k(path)
         if self.f0_method == "rmvpe+":
             return self.model_rmvpe.infer_from_audio_modified(audio, 0.02)
         return self.model_rmvpe.infer_from_audio(audio, 0.03)
@@ -169,8 +168,7 @@ class DataPreprocessor:
 
     def _extract_semantic_features(self, wav_path):
         """Извлечение семантических признаков с использованием модели HuBERT."""
-        wav = load_audio(wav_path, 16000)
-        # wav = load_audio_16k(wav_path)
+        wav = load_audio_16k(wav_path)
         feats = torch.from_numpy(wav).float().view(1, -1).to(self.device)
         padding_mask = torch.BoolTensor(feats.shape).fill_(False).to(self.device)
 
