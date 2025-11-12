@@ -17,11 +17,10 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
     assert os.path.isfile(checkpoint_path), f"Checkpoint file not found: {checkpoint_path}"
 
     checkpoint_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-    checkpoint_dict = replace_keys_in_dict(
-        replace_keys_in_dict(checkpoint_dict, ".weight_v", ".parametrizations.weight.original1"),
-        ".weight_g",
-        ".parametrizations.weight.original0",
-    )
+    checkpoint_dict = replace_keys_in_dict(replace_keys_in_dict(
+        checkpoint_dict,
+        ".weight_v", ".parametrizations.weight.original1"),
+        ".weight_g", ".parametrizations.weight.original0")
 
     model_to_load = model.module if hasattr(model, "module") else model
     model_state_dict = model_to_load.state_dict()
@@ -45,13 +44,11 @@ def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path)
         "learning_rate": learning_rate,
     }
 
-    torch.save(
-        replace_keys_in_dict(
-            replace_keys_in_dict(checkpoint_data, ".parametrizations.weight.original1", ".weight_v"),
-            ".parametrizations.weight.original0",
-            ".weight_g",
-        ),
-        checkpoint_path,
+    torch.save(replace_keys_in_dict(replace_keys_in_dict(
+        checkpoint_data,
+        ".parametrizations.weight.original1", ".weight_v"),
+        ".parametrizations.weight.original0", ".weight_g"),
+        checkpoint_path
     )
 
     print(f"Сохранен чекпоинт '{checkpoint_path}' (эпоха {iteration})", flush=True)
@@ -124,13 +121,11 @@ def extract_model(hps, ckpt, epoch, step, final_save):
         opt["learning_environment"] = "PolTrain"
 
         # Сохранение модели
-        torch.save(
-            replace_keys_in_dict(
-                replace_keys_in_dict(opt, ".parametrizations.weight.original1", ".weight_v"),
-                ".parametrizations.weight.original0",
-                ".weight_g",
-            ),
-            filepath,
+        torch.save(replace_keys_in_dict(replace_keys_in_dict(
+            opt,
+            ".parametrizations.weight.original1", ".weight_v"),
+            ".parametrizations.weight.original0", ".weight_g"),
+            filepath
         )
 
         return f"Модель '{filename}' успешно сохранена!"
