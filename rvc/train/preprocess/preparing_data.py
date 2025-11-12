@@ -50,7 +50,7 @@ class DataPreprocessor:
             normalize: Применение нормализации амплитуды к аудиосигналу
             arch_fairseq: Версия архитектуры Fairseq ("Fairseq" или "Fairseq2")
             f0_method: Алгоритм извлечения фундаментальной частоты ("rmvpe" или "rmvpe+")
-            include_mutes: Количество сэмплов тишины для аугментации
+            include_mutes: Количество mute-файлов на каждые 100 сегментов (0 = отключить)
         """
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -296,7 +296,9 @@ class DataPreprocessor:
     def generate_filelist(self):
         """Генерация манифеста данных для обучения модели.
 
-        Создает текстовый файл со списком путей к обработанным данным.
+        Создает текстовый файл со списком путей к обработанным данным
+        с фиксированным speaker ID = 0 и динамическим добавлением mute-файлов
+        (N mute-файлов на каждые 100 сегментов).
 
         """
         mute_base_path = os.path.join(now_dir, "logs", "mute")
@@ -323,19 +325,28 @@ class DataPreprocessor:
                 f"{os.path.join(self.f0_voiced_dir, name)}.wav.npy|0"
             )
 
-        # Добавление сэмплов тишины для улучшения робастности модели
+        # Динамический расчет количества mute-файлов (N файлов на каждые 100 сегментов)
+        total_segments = len(names)
         if self.include_mutes > 0:
+            mute_count = max(1, int((total_segments / 100) * self.include_mutes))
+            mute_percentage = (mute_count / total_segments) * 100
+            print(f"\nДобавлено mute-файлов: {mute_count} ({mute_percentage:.2f}% от общего объема)")
+
             mute_audio = os.path.join(mute_base_path, "sliced_audios", f"mute{self.sample_rate}.wav")
             mute_feature = os.path.join(mute_base_path, "features", "mute.npy")
             mute_f0 = os.path.join(mute_base_path, "f0_quantized", "mute.wav.npy")
             mute_f0nsf = os.path.join(mute_base_path, "f0_voiced", "mute.wav.npy")
-            for _ in range(self.include_mutes):
+            for _ in range(mute_count):
                 options.append(f"{mute_audio}|{mute_feature}|{mute_f0}|{mute_f0nsf}|0")
+        else:
+            print("\n⚠ Mute-файлы отключены (include_mutes = 0)")
 
         # Рандомизация порядка для улучшения обучения
         shuffle(options)
         with open(os.path.join(self.data_dir, "filelist.txt"), "w", encoding="utf-8") as f:
             f.write("\n".join(options))
+        
+        print(f"✓ Манифест создан: {len(options)} записей")
 
     def process_dataset(self, input_root: str):
         """Выполнение полного пайплайна предобработки датасета.
@@ -392,7 +403,7 @@ def main():
         print("  normalize    - применять нормализацию (True/False)")
         print("  arch_fairseq - архитектура Fairseq (Fairseq/Fairseq2)")
         print("  f0_method    - метод извлечения F0 (rmvpe/rmvpe+)")
-        print("  include_mutes - количество сэмплов тишины")
+        print("  include_mutes - количество mute-файлов на каждые 100 сегментов")
         sys.exit(1)
 
     # Парсинг обязательных аргументов
@@ -407,7 +418,7 @@ def main():
     f0_method = sys.argv[7] if len(sys.argv) > 7 else "rmvpe"
     include_mutes = int(sys.argv[8]) if len(sys.argv) > 8 else 2
     if include_mutes < 0 or include_mutes > 10:
-        raise ValueError("include_mutes не может быть отрицательным или более 10")
+        raise ValueError("include_mutes должен быть в диапазоне 0-10")
 
     # Инициализация и запуск препроцессора
     try:
