@@ -50,7 +50,7 @@ class DataPreprocessor:
             normalize: Применение нормализации амплитуды к аудиосигналу
             arch_fairseq: Версия архитектуры Fairseq ("Fairseq" или "Fairseq2")
             f0_method: Алгоритм извлечения фундаментальной частоты ("rmvpe" или "rmvpe+")
-            include_mutes: Количество сэмплов тишины на каждого диктора для аугментации
+            include_mutes: Количество сэмплов тишины для аугментации
         """
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -296,8 +296,7 @@ class DataPreprocessor:
     def generate_filelist(self):
         """Генерация манифеста данных для обучения модели.
 
-        Создает текстовый файл со списком путей к обработанным данным
-        и соответствующими метками дикторов.
+        Создает текстовый файл со списком путей к обработанным данным.
 
         """
         mute_base_path = os.path.join(now_dir, "logs", "mute")
@@ -313,19 +312,15 @@ class DataPreprocessor:
         if not names:
             raise RuntimeError("Нет полностью обработанных файлов для создания манифеста")
 
-        sids = []
         options = []
 
         # Формирование записей манифеста
         for name in names:
-            sid = name.split("_")[0]  # Извлечение ID диктора
-            if sid not in sids:
-                sids.append(sid)
             options.append(
                 f"{os.path.join(self.gt_wavs_dir, name)}.wav|"
                 f"{os.path.join(self.features_dir, name)}.npy|"
                 f"{os.path.join(self.f0_quant_dir, name)}.wav.npy|"
-                f"{os.path.join(self.f0_voiced_dir, name)}.wav.npy|{sid}"
+                f"{os.path.join(self.f0_voiced_dir, name)}.wav.npy|0"
             )
 
         # Добавление сэмплов тишины для улучшения робастности модели
@@ -334,8 +329,8 @@ class DataPreprocessor:
             mute_feature = os.path.join(mute_base_path, "features", "mute.npy")
             mute_f0 = os.path.join(mute_base_path, "f0_quantized", "mute.wav.npy")
             mute_f0nsf = os.path.join(mute_base_path, "f0_voiced", "mute.wav.npy")
-            for sid in sids * self.include_mutes:
-                options.append(f"{mute_audio}|{mute_feature}|{mute_f0}|{mute_f0nsf}|{sid}")
+            for _ in range(self.include_mutes):
+                options.append(f"{mute_audio}|{mute_feature}|{mute_f0}|{mute_f0nsf}|0")
 
         # Рандомизация порядка для улучшения обучения
         shuffle(options)
