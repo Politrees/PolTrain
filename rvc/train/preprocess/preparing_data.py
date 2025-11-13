@@ -184,7 +184,7 @@ class DataPreprocessor:
         автоматически определяя границы по паузам в речи.
 
         """
-        print("\nИнициализация процесса сегментации аудиоданных...")
+        print("Инициализация процесса сегментации аудиоданных...")
 
         if not os.path.exists(input_root):
             raise FileNotFoundError(f"Директория не существует: {input_root}")
@@ -254,7 +254,7 @@ class DataPreprocessor:
             self._raise_no_files_error()
             sys.exit(1)  # Принудительное завершение процесса
 
-        print(f"\nОбнаружено сегментов для извлечения признаков: {len(files)}")
+        print(f"Обнаружено сегментов для извлечения признаков: {len(files)}")
 
         # Фаза 1: Извлечение контуров фундаментальной частоты
         for file in tqdm(files, desc="Извлечение F0 (фундаментальной частоты)"):
@@ -330,7 +330,7 @@ class DataPreprocessor:
         if self.include_mutes > 0:
             mute_count = max(1, int((total_segments / 100) * self.include_mutes))
             mute_percentage = (mute_count / total_segments) * 100
-            print(f"\nДобавлено mute-файлов: {mute_count} ({mute_percentage:.2f}% от общего объема)")
+            print(f"Добавлено mute-файлов: {mute_count} ({mute_percentage:.2f}% от общего объема)")
 
             mute_audio = os.path.join(mute_base_path, "sliced_audios", f"mute{self.sample_rate}.wav")
             mute_feature = os.path.join(mute_base_path, "features", "mute.npy")
@@ -339,7 +339,7 @@ class DataPreprocessor:
             for _ in range(mute_count):
                 options.append(f"{mute_audio}|{mute_feature}|{mute_f0}|{mute_f0nsf}|0")
         else:
-            print("\n⚠ Mute-файлы отключены (include_mutes = 0)")
+            print("⚠ Mute-файлы отключены (include_mutes = 0)")
 
         # Рандомизация порядка для улучшения обучения
         shuffle(options)
@@ -356,15 +356,12 @@ class DataPreprocessor:
 
         """
         try:
-            # 1: Сегментация аудиоданных
-            self.segmentation_audios(input_root)
-
-            # 2: Извлечение акустических признаков
-            self.extract_acoustic_features()
-
-            # 3: Генерация манифеста для обучения
-            self.generate_filelist()
-
+            print("\n[1/3]==================================================")
+            self.segmentation_audios(input_root)  # 1: Сегментация аудиоданных
+            print("\n[2/3]==================================================")
+            self.extract_acoustic_features()      # 2: Извлечение акустических признаков
+            print("\n[3/3]==================================================")
+            self.generate_filelist()              # 3: Генерация манифеста для обучения
         except Exception as e:
             raise RuntimeError(f"\n❌ Критическая ошибка в процессе обработки: {str(e)}")
 
