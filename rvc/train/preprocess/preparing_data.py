@@ -15,6 +15,7 @@ import torch
 from scipy import signal
 from scipy.io import wavfile
 from tqdm import tqdm
+import pyloudnorm as pyln
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -26,7 +27,7 @@ from rvc.train.preprocess.slicer import Slicer
 class DataPreprocessor:
     """Унифицированный препроцессор для подготовки аудиоданных в системе RVC.
 
-    Реализует полный пайплайн предобработки, включающий сегментацию аудио,
+    Реализует полный пайплайн предобработки, включающий LUFS нормализацию, сегментацию аудио,
     извлечение фундаментальной частоты (F0) и акустических признаков HuBERT.
 
     """
@@ -37,6 +38,7 @@ class DataPreprocessor:
         sample_rate: int = 40000,
         percentage: float = 3.0,
         normalize: bool = True,
+        target_lufs: float = -20.0,
         arch_fairseq: str = "Fairseq",
         f0_method: str = "rmvpe",
         include_mutes: int = 2,
@@ -47,7 +49,8 @@ class DataPreprocessor:
             exp_dir: Корневая директория эксперимента для сохранения результатов
             sample_rate: Целевая частота дискретизации в Гц (поддерживается: 32000, 40000, 48000)
             percentage: Максимальная длительность аудиосегмента в секундах
-            normalize: Применение нормализации амплитуды к аудиосигналу
+            normalize: Применение LUFS нормализации к аудиосигналу
+            target_lufs: Целевая громкость в LUFS
             arch_fairseq: Версия архитектуры Fairseq ("Fairseq" или "Fairseq2")
             f0_method: Алгоритм извлечения фундаментальной частоты ("rmvpe" или "rmvpe+")
             include_mutes: Количество mute-файлов на каждые 100 сегментов (0 = отключить)
@@ -58,9 +61,13 @@ class DataPreprocessor:
         self.percentage = percentage
         self.sample_rate = sample_rate
         self.normalize = normalize
+        self.target_lufs = target_lufs
         self.arch_fairseq = arch_fairseq
         self.f0_method = f0_method
         self.include_mutes = include_mutes
+
+        # Инициализация LUFS meter для измерения перцептивной громкости
+        self.meter = pyln.Meter(self.sample_rate)
 
         # Инициализация файловой структуры проекта
         self.data_dir = os.path.join(self.exp_dir, "data")
@@ -122,16 +129,39 @@ class DataPreprocessor:
         else:
             raise ValueError(f"Неподдерживаемая архитектура Fairseq: {self.arch_fairseq}")
 
+    def _normalize_lufs(self, audio):
+        """Нормализация аудио по стандарту LUFS."""
+        try:
+            # Измерение текущей интегральной громкости
+            loudness = self.meter.integrated_loudness(audio)
+            
+            # Защита от бесконечно тихих или пустых сегментов
+            if loudness == float('-inf') or np.isnan(loudness):
+                tqdm.write(f"⚠ Предупреждение: аудио слишком тихое для измерения LUFS (возможно тишина)")
+                return audio
+            
+            # Нормализация до целевого уровня LUFS
+            normalized_audio = pyln.normalize.loudness(audio, loudness, self.target_lufs)
+            
+            # Защита от клиппинга после нормализации
+            peak = np.abs(normalized_audio).max()
+            if peak > 0.99:
+                normalized_audio = normalized_audio * (0.99 / peak)
+                tqdm.write(f"⚠ Применен лимитер: пик после LUFS нормализации = {peak:.3f}")
+            
+            return normalized_audio
+            
+        except Exception as e:
+            tqdm.write(f"⚠ Ошибка LUFS нормализации: {str(e)}, используется оригинальное аудио")
+            return audio
+
     def _norm_res_write(self, tmp_audio, idx0, idx1):
-        """Нормализация и сохранение аудиосегмента с ресемплингом."""
-        # Проверка на клиппинг и артефакты
+        """Сохранение аудиосегмента с ресемплингом."""
+        # Проверка на экстремальный клиппинг и артефакты
         tmp_max = np.abs(tmp_audio).max()
         if tmp_max > 2.5:
+            tqdm.write(f"⚠ Пропущен сегмент {idx0}_{idx1}: чрезмерный уровень сигнала ({tmp_max:.2f})")
             return
-
-        # Применение адаптивной нормализации с сохранением динамического диапазона
-        if self.normalize:
-            tmp_audio = (tmp_audio / tmp_max * (0.9 * 0.75)) + (1 - 0.75) * tmp_audio
 
         # Сохранение с оригинальной частотой дискретизации
         wavfile.write(os.path.join(self.gt_wavs_dir, f"{idx0}_{idx1}.wav"), self.sample_rate, tmp_audio.astype(np.float32))
@@ -178,13 +208,17 @@ class DataPreprocessor:
             return logits[0].squeeze(0).float().cpu().numpy()
 
     def segmentation_audios(self, input_root: str):
-        """Выполнение сегментации аудиофайлов с детекцией пауз.
+        """Выполнение сегментации аудиофайлов с LUFS нормализацией и детекцией пауз.
 
         Разделяет длинные аудиозаписи на короткие сегменты фиксированной длины,
         автоматически определяя границы по паузам в речи.
 
         """
         print("Инициализация процесса сегментации аудиоданных...")
+        if self.normalize:
+            print(f"✓ LUFS нормализация включена: целевая громкость = {self.target_lufs} LUFS")
+        else:
+            print("⚠ LUFS нормализация отключена")
 
         if not os.path.exists(input_root):
             raise FileNotFoundError(f"Директория не существует: {input_root}")
@@ -200,8 +234,14 @@ class DataPreprocessor:
                 path = os.path.join(input_root, filename)
 
                 try:
-                    # Загрузка и предварительная фильтрация аудио
+                    # Загрузка аудио
                     audio = load_audio(path, self.sample_rate)
+                    
+                    # LUFS нормализация
+                    if self.normalize:
+                        audio = self._normalize_lufs(audio)
+                    
+                    # Фильтрация аудио (удаление низких частот)
                     audio = signal.lfilter(self.b_high, self.a_high, audio)
 
                     idx1 = 0
@@ -352,12 +392,12 @@ class DataPreprocessor:
         """Выполнение полного пайплайна предобработки датасета.
 
         Последовательно выполняет все этапы подготовки данных:
-        сегментацию, извлечение признаков и генерацию манифеста.
+        сегментацию с LUFS нормализацией, извлечение признаков и генерацию манифеста.
 
         """
         try:
             print("\n[1/3]==================================================")
-            self.segmentation_audios(input_root)  # 1: Сегментация аудиоданных
+            self.segmentation_audios(input_root)  # 1: LUFS нормализация + сегментация
             print("\n[2/3]==================================================")
             self.extract_acoustic_features()      # 2: Извлечение акустических признаков
             print("\n[3/3]==================================================")
@@ -375,7 +415,7 @@ class DataPreprocessor:
             "• Единичный файл превышает максимальную длительность (1 час)\n"
             "• Некорректный формат или повреждение исходных файлов\n\n"
             "Рекомендации по устранению:\n"
-            "1. Проверьте уровень сигнала в исходных файлах (рекомендуется -20 dB RMS)\n"
+            "1. Проверьте уровень сигнала в исходных файлах\n"
             "2. Увеличьте объем обучающих данных\n"
             "3. Разделите длинные записи на фрагменты по 10-30 минут\n"
             "4. Убедитесь в корректности аудиоформатов (WAV, MP3, FLAC, OGG)\n"
@@ -391,13 +431,14 @@ def main():
     """
     if len(sys.argv) < 6:
         print("Использование:")
-        print("python preparing_data.py <exp_dir> <input_root> <percentage> <sample_rate> <normalize> [arch_fairseq] [f0_method] [include_mutes]")
+        print("python preparing_data.py <exp_dir> <input_root> <percentage> <sample_rate> <normalize> [target_lufs] [arch_fairseq] [f0_method] [include_mutes]")
         print("\nПараметры:")
         print("  exp_dir      - директория для сохранения результатов")
         print("  input_root   - директория с исходными аудиофайлами")
         print("  percentage   - максимальная длина сегмента (секунды)")
         print("  sample_rate  - частота дискретизации (32000/40000/48000)")
-        print("  normalize    - применять нормализацию (True/False)")
+        print("  normalize    - применять LUFS нормализацию (True/False)")
+        print("  target_lufs  - целевая громкость в LUFS (-23.0 broadcast / -16.0 streaming / -14.0 музыка)")
         print("  arch_fairseq - архитектура Fairseq (Fairseq/Fairseq2)")
         print("  f0_method    - метод извлечения F0 (rmvpe/rmvpe+)")
         print("  include_mutes - количество mute-файлов на каждые 100 сегментов")
@@ -411,11 +452,16 @@ def main():
     normalize = sys.argv[5].lower() in ["true", "1", "yes"]
 
     # Парсинг опциональных аргументов с значениями по умолчанию
-    arch_fairseq = sys.argv[6] if len(sys.argv) > 6 else "Fairseq"
-    f0_method = sys.argv[7] if len(sys.argv) > 7 else "rmvpe"
-    include_mutes = int(sys.argv[8]) if len(sys.argv) > 8 else 2
+    target_lufs = float(sys.argv[6]) if len(sys.argv) > 6 else -20.0
+    arch_fairseq = sys.argv[7] if len(sys.argv) > 7 else "Fairseq"
+    f0_method = sys.argv[8] if len(sys.argv) > 8 else "rmvpe"
+    include_mutes = int(sys.argv[9]) if len(sys.argv) > 9 else 2
+    
+    # Валидация параметров
     if include_mutes < 0 or include_mutes > 10:
         raise ValueError("include_mutes должен быть в диапазоне 0-10")
+    if target_lufs < -40.0 or target_lufs > -5.0:
+        raise ValueError("target_lufs должен быть в диапазоне -40.0 до -5.0 LUFS")
 
     # Инициализация и запуск препроцессора
     try:
@@ -424,6 +470,7 @@ def main():
             sample_rate=sample_rate,
             percentage=percentage,
             normalize=normalize,
+            target_lufs=target_lufs,
             arch_fairseq=arch_fairseq,
             f0_method=f0_method,
             include_mutes=include_mutes
