@@ -1,4 +1,5 @@
 # Звук
+pyloudnorm
 pydub==0.25.1
 librosa==0.11.0
 ffmpeg-python==0.2.0
