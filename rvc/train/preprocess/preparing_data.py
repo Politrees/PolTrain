@@ -38,7 +38,7 @@ class DataPreprocessor:
         sample_rate: int = 40000,
         percentage: float = 3.0,
         normalize: bool = True,
-        target_lufs: float = -20.0,
+        target_lufs: float = -16.0,
         arch_fairseq: str = "Fairseq",
         f0_method: str = "rmvpe",
         include_mutes: int = 2,
@@ -452,7 +452,7 @@ def main():
     normalize = sys.argv[5].lower() in ["true", "1", "yes"]
 
     # Парсинг опциональных аргументов с значениями по умолчанию
-    target_lufs = float(sys.argv[6]) if len(sys.argv) > 6 else -20.0
+    target_lufs = float(sys.argv[6]) if len(sys.argv) > 6 else -16.0
     arch_fairseq = sys.argv[7] if len(sys.argv) > 7 else "Fairseq"
     f0_method = sys.argv[8] if len(sys.argv) > 8 else "rmvpe"
     include_mutes = int(sys.argv[9]) if len(sys.argv) > 9 else 2
