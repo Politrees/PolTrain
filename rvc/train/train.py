@@ -158,8 +158,9 @@ def main():
 
 def run(hps, rank, n_gpus, device, device_id):
     global global_step
-    mel_sim_ema = [0.0, 0]
     try:
+        metrics_ema = {} if rank == 0 else None
+        best_metrics = {"metrics/mel_sim": None} if rank == 0 else None
         writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval")) if rank == 0 else None
         fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
 
@@ -186,7 +187,7 @@ def run(hps, rank, n_gpus, device, device_id):
         )
         train_loader = DataLoader(
             train_dataset,
-            num_workers=2,  # 4
+            num_workers=2,
             shuffle=False,
             pin_memory=True,
             collate_fn=collate_fn,
@@ -266,6 +267,34 @@ def run(hps, rank, n_gpus, device, device_id):
                 d_model = net_d.module if hasattr(net_d, "module") else net_d
                 d_model.load_state_dict(torch.load(hps.pretrain_d, map_location="cpu", weights_only=True)["model"])
 
+        # Пересчёт EMA и лучших значений из TensorBoard
+        if loaded and rank == 0:
+            try:
+                from tensorboard.backend.event_processing import event_accumulator
+                ea = event_accumulator.EventAccumulator(os.path.join(hps.model_dir, "eval"))
+                ea.Reload()
+
+                for tag in ea.Tags().get('scalars', []):
+                    events = ea.Scalars(tag)
+                    if events:
+                        ema = None
+                        for event in events:
+                            if event.step < epoch_str:
+                                val = float(event.value)
+                                ema = val if ema is None else ema * 0.987 + val * 0.013
+                                
+                                # Отслеживание лучших значений из истории
+                                if tag == "metrics/mel_sim":
+                                    if best_metrics["metrics/mel_sim"] is None or ema > best_metrics["metrics/mel_sim"]["value"]:
+                                        best_metrics["metrics/mel_sim"] = {"value": ema, "epoch": event.step}
+
+                        if ema is not None:
+                            metrics_ema[tag] = ema
+
+                print(f"Инициализировано {len(metrics_ema)} метрик из TensorBoard\n", flush=True)
+            except Exception as e:
+                print(f"Не удалось загрузить историю из TensorBoard: {e}\n", flush=True)
+
         scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
         scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
 
@@ -280,9 +309,10 @@ def run(hps, rank, n_gpus, device, device_id):
                 train_loader,
                 writer_eval,
                 fn_mel_loss,
-                mel_sim_ema,
                 device,
                 device_id,
+                metrics_ema,
+                best_metrics,
             )
             scheduler_g.step()
             scheduler_d.step()
@@ -292,7 +322,7 @@ def run(hps, rank, n_gpus, device, device_id):
             dist.destroy_process_group()
 
 
-def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, mel_sim_ema, device, device_id):
+def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, device, device_id, metrics_ema=None, best_metrics=None):
     global global_step
 
     net_g, net_d = nets
@@ -301,6 +331,14 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
 
     net_g.train()
     net_d.train()
+
+    def smooth(key, value, smoothing=0.987):
+        """Сглаживание метрики с EMA"""
+        if metrics_ema is None:
+            return value
+        v = value.item() if isinstance(value, torch.Tensor) else value
+        metrics_ema[key] = v if key not in metrics_ema else metrics_ema[key] * smoothing + v * (1 - smoothing)
+        return metrics_ema[key]
 
     epoch_recorder = EpochRecorder()
     for _, info in enumerate(train_loader):
@@ -315,7 +353,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
         wave = slice_segments(wave, ids_slice * hps.data.hop_length, hps.train.segment_size, dim=3)
 
         # Discriminator loss
-        for _ in range(1):  # default x1
+        for _ in range(1):
             y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
             loss_disc = discriminator_loss(y_d_hat_r, y_d_hat_g)
             optim_d.zero_grad()
@@ -324,7 +362,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             optim_d.step()
 
         # Generator loss
-        for _ in range(1):  # default x1
+        for _ in range(1):
             _, y_d_hat_g, fmap_r, fmap_g = net_d(wave, y_hat)
             loss_mel = fn_mel_loss(wave, y_hat) * hps.train.c_mel / 3.0
             loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
@@ -358,15 +396,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             hps.data.mel_fmin,
             hps.data.mel_fmax,
         )
-
         mel_similarity = mel_spectrogram_similarity(y_hat_mel, y_mel)
-        if mel_sim_ema is not None:
-            smoothing = 0.987
-            mel_sim_ema[1] += 1
-            mel_sim_ema[0] = mel_sim_ema[0] * smoothing + mel_similarity.item() * (1 - smoothing)
-            mel_sim_display = mel_sim_ema[0] / (1 - smoothing ** mel_sim_ema[1])
-        else:
-            mel_sim_display = mel_similarity.item()
 
         scalar_dict = {
             "grad/norm_d": grad_norm_d,
@@ -378,8 +408,6 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             "loss/g/kl": loss_kl,
             "loss/g/total": loss_gen_all,
             "metrics/mel_sim": mel_similarity,
-            "metrics/mse_wave": F.mse_loss(y_hat, wave),
-            "metrics/mse_pitch": F.mse_loss(pitchf, pitch),
         }
         image_dict = {
             "mel/slice/real": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
@@ -390,12 +418,22 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
         for k, v in image_dict.items():
             writer_eval.add_image(k, v, epoch, dataformats="HWC")
 
+        # Применяем сглаживание
+        smoothed = {k: smooth(k, v) for k, v in scalar_dict.items()}
+        
+        # Обновление лучших значений (сглаженных)
+        if best_metrics is not None:
+            if best_metrics["metrics/mel_sim"] is None or smoothed["metrics/mel_sim"] > best_metrics["metrics/mel_sim"]["value"]:
+                best_metrics["metrics/mel_sim"] = {"value": smoothed["metrics/mel_sim"], "epoch": epoch}
+
     if rank == 0:
+        mel_sim_display = metrics_ema.get("metrics/mel_sim", 0.0) if metrics_ema else 0.0
+        best_mel = (f"{best_metrics['metrics/mel_sim']['value']:.2f}% на эпохе {best_metrics['metrics/mel_sim']['epoch']}"
+                    if best_metrics and best_metrics.get("metrics/mel_sim") else "")
         print(
-            f"{epoch_recorder.record()} - {hps.model_name} | "
-            f"Эпоха: {epoch}/{hps.total_epoch} | "
-            f"Шаг: {global_step} | "
-            f"Сходство mel: {mel_sim_display:.2f}%",
+            f"{epoch_recorder.record()}: {hps.model_name} ▸ "
+            f"Эпоха {epoch}/{hps.total_epoch} (Шаг {global_step}) ││ "
+            f"Mel: {mel_sim_display:.2f}% \033[3m({best_mel})\033[0m",
             flush=True,
         )
 
