@@ -303,11 +303,10 @@ def run(hps, rank, n_gpus, device, device_id):
                 if best_val == -float('inf'):
                     best_val, best_ep = 0.0, 0
 
-                print(f"Синхронизация завершена.", flush=True)
-                print(f"Last Mel: {curr_mel:.2f}% | Best Mel: {best_val:.2f}% (на эпохе {best_ep})\n", flush=True)
+                print(f"Last Mel: {curr_mel:.2f}% | Best Mel: {best_val:.2f}% (на эпохе {best_ep})", flush=True)
 
             except Exception as e:
-                print(f"Ошибка чтения TensorBoard: {e}\n", flush=True)
+                print(f"Ошибка чтения TensorBoard: {e}", flush=True)
 
         scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
         scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
@@ -351,7 +350,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
         if metrics_ema is None:
             return value
 
-        v = float(value.item()) if isinstance(value, torch.Tensor) else float(value)
+        v = float(value)
         metrics_ema[key] = v if key not in metrics_ema else metrics_ema[key] * smoothing + v * (1.0 - smoothing)
         return metrics_ema[key]
 
@@ -457,10 +456,9 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             warning_msg = "[Возможна перетренировка]"
 
         print(
-            f"{epoch_recorder.record()} :: {hps.model_name} :: "
-            f"Эпоха {epoch}/{hps.total_epoch} | Шаг {global_step} ││ "
-            f"Mel: \033[1;33m{mel_sim_display:.2f}%\033[0m ▸▸▸ "
-            f"Рекорд: {best_val:.2f}% (Эпоха {best_ep}) "
+            f"{epoch_recorder.record()}: {hps.model_name} ▸ "
+            f"Эпоха {epoch}/{hps.total_epoch} (Шаг {global_step}) ││ "
+            f"Mel: {mel_sim_display:.2f}% ▸ Рекорд: {best_val:.2f}% (Эпоха {best_ep}) "
             f"\033[93m{warning_msg}\033[0m",
             flush=True,
         )
