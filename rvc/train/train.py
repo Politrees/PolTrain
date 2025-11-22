@@ -160,7 +160,7 @@ def run(hps, rank, n_gpus, device, device_id):
     global global_step
     try:
         metrics_ema = {} if rank == 0 else None
-        best_metrics = {"metrics/mel_sim": None} if rank == 0 else None
+        best_metrics = {"metrics/mel_sim": {"value": -float('inf'), "epoch": 0}} if rank == 0 else None
         writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval")) if rank == 0 else None
         fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
 
@@ -271,29 +271,47 @@ def run(hps, rank, n_gpus, device, device_id):
         if loaded and rank == 0:
             try:
                 from tensorboard.backend.event_processing import event_accumulator
-                ea = event_accumulator.EventAccumulator(os.path.join(hps.model_dir, "eval"))
+                ea = event_accumulator.EventAccumulator(os.path.join(hps.model_dir, "eval"), size_guidance={'scalars': 0})
                 ea.Reload()
 
-                for tag in ea.Tags().get('scalars', []):
+                tags = ea.Tags().get('scalars', [])
+                if tags:
+                    print(f"\nСинхронизация метрик из TensorBoard...", flush=True)
+
+                for tag in tags:
                     events = ea.Scalars(tag)
                     if events:
-                        ema = None
+                        step_values = {}
                         for event in events:
                             if event.step < epoch_str:
-                                val = float(event.value)
-                                ema = val if ema is None else ema * 0.987 + val * 0.013
-                                
-                                # Отслеживание лучших значений из истории
-                                if tag == "metrics/mel_sim":
-                                    if best_metrics["metrics/mel_sim"] is None or ema > best_metrics["metrics/mel_sim"]["value"]:
-                                        best_metrics["metrics/mel_sim"] = {"value": ema, "epoch": event.step}
+                                step_values[event.step] = float(event.value)
 
-                        if ema is not None:
-                            metrics_ema[tag] = ema
+                        smoothing = 0.987
+                        one_minus_smoothing = 1.0 - smoothing
+                        ema_n, ema_d, current_ema = 0.0, 0.0, 0.0
 
-                print(f"Инициализировано {len(metrics_ema)} метрик из TensorBoard\n", flush=True)
+                        sorted_steps = sorted(step_values.keys())
+                        for step in sorted_steps:
+                            current_ema = ema_n * smoothing + step_values[step] * one_minus_smoothing / ema_d * smoothing + one_minus_smoothing
+                            if tag == "metrics/mel_sim":
+                                if current_ema > best_metrics["metrics/mel_sim"]["value"]:
+                                    best_metrics["metrics/mel_sim"] = {"value": current_ema, "epoch": step}
+
+                        if sorted_steps:
+                            metrics_ema[tag] = current_ema
+
+                curr_mel = metrics_ema.get('metrics/mel_sim', 0.0)
+                best_val = best_metrics['metrics/mel_sim']['value']
+                best_ep = best_metrics['metrics/mel_sim']['epoch']
+
+                if best_val == -float('inf'): 
+                    best_val, best_ep = 0.0, 0
+
+                print(f"Синхронизация завершена.", flush=True)
+                print(f"Last Mel: {curr_mel:.2f}% | Best Mel: {best_val:.2f}% (на эпохе {best_ep})\n", flush=True)
+
             except Exception as e:
-                print(f"Не удалось загрузить историю из TensorBoard: {e}\n", flush=True)
+                print(f"Ошибка чтения TensorBoard: {e}\n", flush=True)
 
         scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
         scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
@@ -336,11 +354,18 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
         """Сглаживание метрики с EMA"""
         if metrics_ema is None:
             return value
-        v = value.item() if isinstance(value, torch.Tensor) else value
-        metrics_ema[key] = v if key not in metrics_ema else metrics_ema[key] * smoothing + v * (1 - smoothing)
+
+        one_minus_smoothing = 1.0 - smoothing
+
+        v = float(value.item()) if isinstance(value, torch.Tensor) else float(value)
+        metrics_ema[key] = v if key not in metrics_ema else metrics_ema[key] * smoothing + v * one_minus_smoothing
         return metrics_ema[key]
 
     epoch_recorder = EpochRecorder()
+    
+    loss_disc = loss_gen = loss_fm = loss_mel = loss_kl = loss_gen_all = 0
+    grad_norm_d = grad_norm_g = 0
+    
     for _, info in enumerate(train_loader):
         if device.type == "cuda":
             info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
@@ -419,24 +444,34 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             writer_eval.add_image(k, v, epoch, dataformats="HWC")
 
         # Применяем сглаживание
-        smoothed = {k: smooth(k, v) for k, v in scalar_dict.items()}
-        
+        smoothed_dict = {k: smooth(k, v) for k, v in scalar_dict.items()}
+
         # Обновление лучших значений (сглаженных)
         if best_metrics is not None:
-            if best_metrics["metrics/mel_sim"] is None or smoothed["metrics/mel_sim"] > best_metrics["metrics/mel_sim"]["value"]:
-                best_metrics["metrics/mel_sim"] = {"value": smoothed["metrics/mel_sim"], "epoch": epoch}
+            current_mel = smoothed_dict.get("metrics/mel_sim", 0.0)
+            if current_mel > best_metrics["metrics/mel_sim"]["value"]:
+                best_metrics["metrics/mel_sim"] = {"value": current_mel, "epoch": epoch}
 
     if rank == 0:
         mel_sim_display = metrics_ema.get("metrics/mel_sim", 0.0) if metrics_ema else 0.0
-        best_mel = (f"{best_metrics['metrics/mel_sim']['value']:.2f}% на эпохе {best_metrics['metrics/mel_sim']['epoch']}"
-                    if best_metrics and best_metrics.get("metrics/mel_sim") else "")
+        
+        best_val = best_metrics['metrics/mel_sim']['value']
+        best_ep = best_metrics['metrics/mel_sim']['epoch']
+
+        warning_msg = ""
+        if best_val > 0 and (epoch - best_ep) > 20:
+            warning_msg = "[Возможна перетренировка]"
+
         print(
-            f"{epoch_recorder.record()}: {hps.model_name} ▸ "
-            f"Эпоха {epoch}/{hps.total_epoch} (Шаг {global_step}) ││ "
-            f"Mel: {mel_sim_display:.2f}% \033[3m({best_mel})\033[0m",
+            f"{epoch_recorder.record()} :: {hps.model_name} :: "
+            f"Эпоха {epoch}/{hps.total_epoch} | Шаг {global_step} ││ "
+            f"Mel: \033[1;33m{mel_sim_display:.2f}%\033[0m ▸▸▸ "
+            f"Рекорд: {best_val:.2f}% (Эпоха {best_ep}) "
+            f"\033[93m{warning_msg}\033[0m",
             flush=True,
         )
 
+    if rank == 0:
         save_final = epoch >= hps.total_epoch
         save_checkpoint_cond = (epoch % hps.save_every_epoch == 0) or save_final
 
@@ -467,7 +502,8 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
                 with zipfile.ZipFile(zip_filename, "w") as zipf:
                     for ext in (".pth", ".index"):
                         file_path = os.path.join(hps.model_dir, f"{hps.model_name}{ext}")
-                        zipf.write(file_path, os.path.basename(file_path))
+                        if os.path.exists(file_path):
+                            zipf.write(file_path, os.path.basename(file_path))
                 print(f"Файлы модели заархивированы в `{zip_filename}`", flush=True)
 
             print("\nОбучение успешно завершено!", flush=True)
