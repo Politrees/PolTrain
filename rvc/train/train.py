@@ -290,7 +290,7 @@ def run(hps, rank, n_gpus, device, device_id):
                             ema_n = ema_n * smoothing + val * (1.0 - smoothing)
                             ema_d = ema_d * smoothing + (1.0 - smoothing)
                             current = ema_n / ema_d
-                            if tag == "metrics/mel_sim" and current > best_metrics["metrics/mel_sim"]["value"]:
+                            if tag == "metrics/mel_sim" and current >= best_metrics["metrics/mel_sim"]["value"]:
                                 best_metrics["metrics/mel_sim"] = {"value": current, "epoch": step}
 
                         if sorted_steps:
@@ -442,7 +442,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
         # Обновление лучших значений (сглаженных)
         if best_metrics is not None:
             current_mel = smoothed_dict.get("metrics/mel_sim", 0.0)
-            if current_mel > best_metrics["metrics/mel_sim"]["value"]:
+            if current_mel >= best_metrics["metrics/mel_sim"]["value"]:
                 best_metrics["metrics/mel_sim"] = {"value": current_mel, "epoch": epoch}
 
     if rank == 0:
