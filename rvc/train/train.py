@@ -274,37 +274,33 @@ def run(hps, rank, n_gpus, device, device_id):
                 ea = event_accumulator.EventAccumulator(os.path.join(hps.model_dir, "eval"), size_guidance={'scalars': 0})
                 ea.Reload()
 
-                tags = ea.Tags().get('scalars', [])
-                if tags:
+                if ea.Tags().get('scalars'):
                     print(f"\nСинхронизация метрик из TensorBoard...", flush=True)
+                    for tag in ea.Tags()['scalars']:
+                        events = ea.Scalars(tag)
+                        if not events:
+                            continue
 
-                for tag in tags:
-                    events = ea.Scalars(tag)
-                    if events:
-                        step_values = {}
-                        for event in events:
-                            if event.step < epoch_str:
-                                step_values[event.step] = float(event.value)
-
-                        smoothing = 0.987
-                        one_minus_smoothing = 1.0 - smoothing
-                        ema_n, ema_d, current_ema = 0.0, 0.0, 0.0
-
+                        step_values = {e.step: float(e.value) for e in events if e.step < epoch_str}
                         sorted_steps = sorted(step_values.keys())
+
+                        smoothing, ema_n, ema_d = 0.987, 0.0, 0.0
                         for step in sorted_steps:
-                            current_ema = ema_n * smoothing + step_values[step] * one_minus_smoothing / ema_d * smoothing + one_minus_smoothing
-                            if tag == "metrics/mel_sim":
-                                if current_ema > best_metrics["metrics/mel_sim"]["value"]:
-                                    best_metrics["metrics/mel_sim"] = {"value": current_ema, "epoch": step}
+                            val = step_values[step]
+                            ema_n = ema_n * smoothing + val * (1.0 - smoothing)
+                            ema_d = ema_d * smoothing + (1.0 - smoothing)
+                            current = ema_n / ema_d
+                            if tag == "metrics/mel_sim" and current > best_metrics["metrics/mel_sim"]["value"]:
+                                best_metrics["metrics/mel_sim"] = {"value": current, "epoch": step}
 
                         if sorted_steps:
-                            metrics_ema[tag] = current_ema
+                            metrics_ema[tag] = current
 
                 curr_mel = metrics_ema.get('metrics/mel_sim', 0.0)
                 best_val = best_metrics['metrics/mel_sim']['value']
                 best_ep = best_metrics['metrics/mel_sim']['epoch']
 
-                if best_val == -float('inf'): 
+                if best_val == -float('inf'):
                     best_val, best_ep = 0.0, 0
 
                 print(f"Синхронизация завершена.", flush=True)
@@ -355,10 +351,8 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
         if metrics_ema is None:
             return value
 
-        one_minus_smoothing = 1.0 - smoothing
-
         v = float(value.item()) if isinstance(value, torch.Tensor) else float(value)
-        metrics_ema[key] = v if key not in metrics_ema else metrics_ema[key] * smoothing + v * one_minus_smoothing
+        metrics_ema[key] = v if key not in metrics_ema else metrics_ema[key] * smoothing + v * (1.0 - smoothing)
         return metrics_ema[key]
 
     epoch_recorder = EpochRecorder()
