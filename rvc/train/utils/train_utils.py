@@ -1,5 +1,7 @@
 import glob
 import os
+import shutil
+import tempfile
 import traceback
 from collections import OrderedDict
 
@@ -15,10 +17,24 @@ def replace_keys_in_dict(d, old_key_part, new_key_part):
 
 
 def save_checkpoint_atomic(data, path):
-    """Атомарное сохранение чекпоинта через временный файл."""
-    temp_path = path + ".tmp"
-    torch.save(data, temp_path)
-    os.replace(temp_path, path)
+    """Сохранение чекпоинта через временный файл на локальном диске."""
+    # Определяем локальную директорию для временного файла
+    local_tmp_dir = "/content" if os.path.exists("/content") else None
+    
+    # Создаём временный файл на локальном диске
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pth.tmp", dir=local_tmp_dir) as tmp_file:
+        temp_path = tmp_file.name
+    
+    try:
+        # Сохраняем во временный файл
+        torch.save(data, temp_path)
+        
+        # Копируем на целевой путь (Google Drive)
+        shutil.copy2(temp_path, path)
+    finally:
+        # Удаляем временный файл с локального диска
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 def save_checkpoint(net_g, optim_g, net_d, optim_d, learning_rate, epoch, checkpoint_path):
