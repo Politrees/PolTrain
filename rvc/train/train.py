@@ -266,7 +266,14 @@ def run(hps, rank, n_gpus, device, device_id):
             scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
             scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
 
+        # Проверка: не превышает ли загруженная эпоха целевую
+        if epoch_str > hps.total_epoch:
+            if rank == 0:
+                print(f"\n⚠️  Загруженный чекпоинт (эпоха {epoch_str - 1}) уже превышает указанное количество эпох ({hps.total_epoch}).", flush=True)
+            return
+
         print("\nЗапуск процесса обучения модели...", flush=True)
+        epoch_recorder = EpochRecorder() if rank == 0 else None
         for epoch in range(epoch_str, hps.total_epoch + 1):
             train_and_evaluate(
                 hps,
@@ -280,6 +287,7 @@ def run(hps, rank, n_gpus, device, device_id):
                 device,
                 device_id,
                 monitor,
+                epoch_recorder,
             )
             scheduler_g.step()
             scheduler_d.step()
@@ -288,7 +296,7 @@ def run(hps, rank, n_gpus, device, device_id):
             dist.destroy_process_group()
 
 
-def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, device, device_id, monitor=None):
+def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, device, device_id, monitor=None, epoch_recorder=None):
     global global_step
 
     net_g, net_d = nets
@@ -297,8 +305,6 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
 
     net_g.train()
     net_d.train()
-
-    epoch_recorder = EpochRecorder()
 
     loss_disc = loss_gen = loss_fm = loss_mel = loss_kl = loss_gen_all = 0
     grad_norm_d = grad_norm_g = 0
@@ -431,38 +437,28 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             intermediate_path = os.path.join(weights_dir, f"{hps.model_name}_e{epoch}_s{global_step}.pth")
             print(extract_model(hps, checkpoint_state, epoch, global_step, intermediate_path), flush=True)
 
-        # Сохранение лучшей модели
-        if monitor.is_new_best_mel(epoch):
-            checkpoint_state = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
-            best_path = os.path.join(hps.model_dir, f"{hps.model_name}_best.pth")
-            extract_model(hps, checkpoint_state, epoch, global_step, best_path)
-            mel_best = monitor.get_best("metrics/mel_sim")
-            print(f"Обновлена лучшая модель (Mel: {mel_best['value']:.2f}%)", flush=True)
+            # Финальная эпоха
+            if is_final_epoch:
+                # Сохранение last модели
+                last_path = os.path.join(hps.model_dir, f"{hps.model_name}_e{epoch}_s{global_step}_last.pth")
+                print(extract_model(hps, checkpoint_state, epoch, global_step, last_path), flush=True)
 
-        # Финальная эпоха
-        if is_final_epoch:
-            checkpoint_state = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
+                # Архивирование
+                if hps.save_to_zip:
+                    import zipfile
 
-            # Сохранение last модели
-            last_path = os.path.join(hps.model_dir, f"{hps.model_name}_last.pth")
-            print(extract_model(hps, checkpoint_state, epoch, global_step, last_path), flush=True)
+                    zip_filename = os.path.join(hps.model_dir, f"{hps.model_name}.zip")
+                    with zipfile.ZipFile(zip_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
+                        # Добавляем last модель
+                        if os.path.exists(last_path):
+                            zipf.write(last_path, os.path.basename(last_path))
+                        # Добавляем index
+                        index_path = os.path.join(hps.model_dir, f"{hps.model_name}.index")
+                        if os.path.exists(index_path):
+                            zipf.write(index_path, os.path.basename(index_path))
+                    print(f"Файлы модели заархивированы в '{os.path.basename(zip_filename)}'", flush=True)
 
-            # Архивирование
-            if hps.save_to_zip:
-                import zipfile
-
-                zip_filename = os.path.join(hps.model_dir, f"{hps.model_name}.zip")
-                with zipfile.ZipFile(zip_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
-                    # Добавляем last модель
-                    if os.path.exists(last_path):
-                        zipf.write(last_path, os.path.basename(last_path))
-                    # Добавляем index
-                    index_path = os.path.join(hps.model_dir, f"{hps.model_name}.index")
-                    if os.path.exists(index_path):
-                        zipf.write(index_path, os.path.basename(index_path))
-                print(f"Файлы модели заархивированы в '{os.path.basename(zip_filename)}'", flush=True)
-
-            print("\nОбучение успешно завершено!", flush=True)
+                print("\nОбучение успешно завершено!", flush=True)
 
 
 if __name__ == "__main__":
