@@ -291,12 +291,6 @@ class TrainingMonitor:
         """Возвращает информацию о рекорде."""
         return self.best_values.get(key, {"value": 0.0, "epoch": 0})
 
-    def is_new_best_mel(self, epoch: int) -> bool:
-        """Проверяет, является ли текущая эпоха новым рекордом mel_sim."""
-        if epoch < self.WARMUP_EPOCHS:
-            return False
-        return self.best_values["metrics/mel_sim"]["epoch"] == epoch
-
     def get_status(self, epoch: int) -> tuple:
         """
         Определяет статус обучения на основе деградации mel_sim.
