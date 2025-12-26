@@ -337,7 +337,7 @@ class TrainingMonitor:
             if not ea.Tags().get("scalars"):
                 return
 
-            print("Восстановление метрик из TensorBoard...", flush=True)
+            print("\nВосстановление метрик из TensorBoard...", flush=True)
 
             for tag in ea.Tags()["scalars"]:
                 events = ea.Scalars(tag)
