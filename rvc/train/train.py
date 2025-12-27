@@ -384,12 +384,9 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
         }
         for k, v in scalar_dict.items():
             writer_eval.add_scalar(k, v, epoch)
+            monitor.update(k, v, epoch)    # Обновление монитора
         for k, v in image_dict.items():
             writer_eval.add_image(k, v, epoch, dataformats="HWC")
-
-        # Обновление монитора
-        for key, value in scalar_dict.items():
-            monitor.update(key, value, epoch)
 
     # Вывод в консоль
     if rank == 0:
@@ -456,7 +453,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
                         index_path = os.path.join(hps.model_dir, f"{hps.model_name}.index")
                         if os.path.exists(index_path):
                             zipf.write(index_path, os.path.basename(index_path))
-                    print(f"Файлы модели заархивированы в '{os.path.basename(zip_filename)}'", flush=True)
+                    print(f"Файлы модели заархивированы в '{zip_filename}'", flush=True)
 
                 print("\nОбучение успешно завершено!", flush=True)
 
