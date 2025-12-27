@@ -62,7 +62,7 @@ def save_checkpoint(net_g, optim_g, net_d, optim_d, learning_rate, epoch, checkp
     )
 
     save_checkpoint_atomic(checkpoint_data, checkpoint_path)
-    print(f"Сохранён чекпоинт '{os.path.basename(checkpoint_path)}' (эпоха {epoch})", flush=True)
+    print(f"Сохранён чекпоинт '{checkpoint_path}' (эпоха {epoch})", flush=True)
 
 
 def load_unified_checkpoint(checkpoint_path, net_g, optim_g, net_d, optim_d):
@@ -93,7 +93,7 @@ def load_unified_checkpoint(checkpoint_path, net_g, optim_g, net_d, optim_d):
     optim_d.load_state_dict(checkpoint["discriminator"]["optimizer"])
 
     epoch = checkpoint["epoch"]
-    print(f"Загружен чекпоинт '{os.path.basename(checkpoint_path)}' (эпоха {epoch})", flush=True)
+    print(f"Загружен чекпоинт '{checkpoint_path}' (эпоха {epoch})", flush=True)
     return epoch
 
 
@@ -242,8 +242,7 @@ def extract_model(hps, ckpt, epoch, step, filepath):
             filepath,
         )
 
-        filename = os.path.basename(filepath)
-        return f"Модель '{filename}' успешно сохранена!"
+        return f"Модель '{filepath}' успешно сохранена!"
     except Exception:
         return f"Ошибка при сохранении модели: {traceback.format_exc()}"
 
@@ -260,8 +259,8 @@ class TrainingMonitor:
 
     # Фиксированные параметры
     WARMUP_EPOCHS = 100           # Эпох до начала отслеживания рекордов
-    WARNING_THRESHOLD = 3.0       # Процент деградации для предупреждения
-    OVERTRAINING_THRESHOLD = 7.0  # Процент деградации для перетренировки
+    WARNING_THRESHOLD = 2.0       # Процент деградации для предупреждения
+    OVERTRAINING_THRESHOLD = 5.0  # Процент деградации для перетренировки
     SMOOTHING = 0.987             # Коэффициент сглаживания EMA
 
     def __init__(self):
