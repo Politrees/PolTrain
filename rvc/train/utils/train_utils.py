@@ -18,7 +18,7 @@ def replace_keys_in_dict(d, old_key_part, new_key_part):
 
 def save_checkpoint_atomic(data, path):
     """Сохранение чекпоинта через временный файл на локальном диске."""
-    # Определяем локальную директорию для временного файла
+    # Определяем локальную директорию для временного файла (Google Colab)
     local_tmp_dir = "/content" if os.path.exists("/content") else None
     
     # Создаём временный файл на локальном диске
@@ -32,7 +32,7 @@ def save_checkpoint_atomic(data, path):
         # Копируем на целевой путь
         shutil.copy2(temp_path, path)
     finally:
-        # Удаляем временный файл с локального диска
+        # Удаляем временный файл
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
@@ -253,8 +253,8 @@ class TrainingMonitor:
     
     Обеспечивает точное соответствие с графиками TensorBoard.
     Определяет статус обучения на основе деградации mel_sim:
-    - Деградация 3%+ → предупреждение
-    - Деградация 7%+ → перетренировка
+    - Деградация 2%+ → предупреждение
+    - Деградация 5%+ → перетренировка
     """
 
     # Фиксированные параметры
@@ -311,8 +311,8 @@ class TrainingMonitor:
         Определяет статус обучения на основе деградации mel_sim.
         
         Логика:
-        - mel_sim упал на 3%+ от рекорда → предупреждение
-        - mel_sim упал на 7%+ от рекорда → перетренировка
+        - mel_sim упал на 2%+ от рекорда → предупреждение
+        - mel_sim упал на 5%+ от рекорда → перетренировка
         
         Returns:
             (status_code, message)
@@ -394,9 +394,9 @@ class TrainingMonitor:
                 print(f"Mel: {mel_smoothed:.2f}%", flush=True)
 
         except ImportError:
-            print("TensorBoard не установлен, пропуск восстановления метрик.", flush=True)
+            print("\nTensorBoard не установлен, пропуск восстановления метрик.", flush=True)
         except Exception as e:
-            print(f"Ошибка восстановления из TensorBoard: {e}", flush=True)
+            print(f"\nОшибка восстановления из TensorBoard: {e}", flush=True)
 
 
 class HParams:
