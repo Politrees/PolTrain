@@ -29,7 +29,7 @@ def save_checkpoint_atomic(data, path):
         # Сохраняем во временный файл
         torch.save(data, temp_path)
         
-        # Копируем на целевой путь (Google Drive)
+        # Копируем на целевой путь
         shutil.copy2(temp_path, path)
     finally:
         # Удаляем временный файл с локального диска
