@@ -1,6 +1,5 @@
 import glob
 import os
-import traceback
 from collections import OrderedDict
 
 import torch
@@ -122,7 +121,7 @@ def load_legacy_checkpoints(model_dir, net_g, optim_g, net_d, optim_d):
                 print(f"Загружены чекпоинты '{g_file}' и '{d_file}' (эпоха {epoch_g})", flush=True)
                 return epoch_g
             except Exception as e:
-                print(f"Ошибка загрузки {g_file}/{d_file}: {e}. Пробуем бэкап...", flush=True)
+                print(f"Ошибка загрузки {g_file}/{d_file}:\n{e}.\nПробуем бэкап...", flush=True)
                 continue
 
     return None
@@ -147,7 +146,7 @@ def attempt_load_checkpoint(net_g, optim_g, net_d, optim_d, model_dir):
         try:
             return load_unified_checkpoint(unified_path, net_g, optim_g, net_d, optim_d)
         except Exception as e:
-            print(f"Ошибка загрузки checkpoint.pth: {e}", flush=True)
+            print(f"Ошибка загрузки checkpoint.pth:\n{e}", flush=True)
 
     # 2. Пробуем старый формат (G/D отдельно)
     epoch = load_legacy_checkpoints(model_dir, net_g, optim_g, net_d, optim_d)
@@ -220,8 +219,8 @@ def extract_model(hps, ckpt, epoch, step, filepath):
         )
 
         return f"Модель '{filepath}' успешно сохранена!"
-    except Exception:
-        return f"Ошибка при сохранении модели: {traceback.format_exc()}"
+    except Exception as e:
+        return f"Ошибка при сохранении модели:\n{e}"
 
 
 class TrainingMonitor:
@@ -373,7 +372,7 @@ class TrainingMonitor:
         except ImportError:
             print("\nTensorBoard не установлен, пропуск восстановления метрик.", flush=True)
         except Exception as e:
-            print(f"\nОшибка восстановления из TensorBoard: {e}", flush=True)
+            print(f"\nОшибка восстановления из TensorBoard:\n{e}", flush=True)
 
 
 class HParams:
