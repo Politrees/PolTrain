@@ -63,8 +63,8 @@ def get_hparams():
     parser.add_argument("--pretrain_g", type=str, default=None)
     parser.add_argument("--pretrain_d", type=str, default=None)
     parser.add_argument("--gpus", type=str, default="0")
-    parser.add_argument("--save_to_zip", type=lambda x: str(x).lower() == "true", default=False)
-    parser.add_argument("--exp_optim", type=lambda x: str(x).lower() == "true", default=False)
+    parser.add_argument("--save_to_zip", type=lambda x: str(x).lower() == "true", choices=[True, False], default=False)
+    parser.add_argument("--exp_optim", type=lambda x: str(x).lower() == "true", choices=[True, False], default=False)
     args = parser.parse_args()
 
     experiment_dir = os.path.join(args.experiment_dir, args.model_name)
