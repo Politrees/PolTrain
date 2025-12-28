@@ -1,7 +1,5 @@
 import glob
 import os
-import shutil
-import tempfile
 import traceback
 from collections import OrderedDict
 
@@ -14,27 +12,6 @@ def replace_keys_in_dict(d, old_key_part, new_key_part):
         new_key = key.replace(old_key_part, new_key_part) if isinstance(key, str) else key
         updated_dict[new_key] = replace_keys_in_dict(value, old_key_part, new_key_part) if isinstance(value, dict) else value
     return updated_dict
-
-
-def save_checkpoint_atomic(data, path):
-    """Сохранение чекпоинта через временный файл на локальном диске."""
-    # Определяем локальную директорию для временного файла (Google Colab)
-    local_tmp_dir = "/content" if os.path.exists("/content") else None
-    
-    # Создаём временный файл на локальном диске
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pth.tmp", dir=local_tmp_dir) as tmp_file:
-        temp_path = tmp_file.name
-    
-    try:
-        # Сохраняем во временный файл
-        torch.save(data, temp_path)
-        
-        # Копируем на целевой путь
-        shutil.copy2(temp_path, path)
-    finally:
-        # Удаляем временный файл
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
 
 
 def save_checkpoint(net_g, optim_g, net_d, optim_d, learning_rate, epoch, checkpoint_path):
@@ -61,7 +38,7 @@ def save_checkpoint(net_g, optim_g, net_d, optim_d, learning_rate, epoch, checkp
         ".weight_g",
     )
 
-    save_checkpoint_atomic(checkpoint_data, checkpoint_path)
+    torch.save(checkpoint_data, checkpoint_path)
     print(f"Сохранён чекпоинт '{checkpoint_path}' (эпоха {epoch})", flush=True)
 
 
