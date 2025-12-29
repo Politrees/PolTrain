@@ -302,18 +302,18 @@ class HiFiGANNSFGenerator(torch.nn.Module):
         return x
 
     def remove_weight_norm(self):
-        for layer in self.ups:
-            remove_weight_norm(layer)
-        for layer in self.resblocks:
-            layer.remove_weight_norm()
+        for l in self.ups:
+            remove_weight_norm(l)
+        for l in self.resblocks:
+            l.remove_weight_norm()
 
     def __prepare_scriptable__(self):
-        for layer in self.ups:
-            for hook in layer._forward_pre_hooks.values():
+        for l in self.ups:
+            for hook in l._forward_pre_hooks.values():
                 if hook.__module__ == "torch.nn.utils.parametrizations.weight_norm" and hook.__class__.__name__ == "WeightNorm":
-                    remove_weight_norm(layer)
-        for layer in self.resblocks:
-            for hook in layer._forward_pre_hooks.values():
+                    remove_weight_norm(l)
+        for l in self.resblocks:
+            for hook in l._forward_pre_hooks.values():
                 if hook.__module__ == "torch.nn.utils.parametrizations.weight_norm" and hook.__class__.__name__ == "WeightNorm":
-                    remove_weight_norm(layer)
+                    remove_weight_norm(l)
         return self

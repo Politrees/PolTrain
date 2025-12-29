@@ -1,3 +1,4 @@
+import glob
 import os
 from collections import OrderedDict
 
@@ -129,12 +130,12 @@ def load_legacy_checkpoints(model_dir, net_g, optim_g, net_d, optim_d):
 def attempt_load_checkpoint(net_g, optim_g, net_d, optim_d, model_dir):
     """
     Универсальная загрузка чекпоинтов с обратной совместимостью.
-
+    
     Приоритет:
     1. checkpoint.pth (новый единый формат)
     2. G_checkpoint.pth + D_checkpoint.pth (старый формат)
     3. *_backup.pth (бэкапы старого формата)
-
+    
     Returns:
         epoch (int) или None если ничего не загрузилось
     """
@@ -161,14 +162,14 @@ def attempt_load_checkpoint(net_g, optim_g, net_d, optim_d, model_dir):
 def extract_model(hps, ckpt, epoch, step, filepath):
     """
     Извлекает и сохраняет модель для инференса.
-
+    
     Args:
         hps: Гиперпараметры модели.
         ckpt: State dict модели (генератора).
         epoch: Номер эпохи.
         step: Номер шага.
         filepath: Полный путь для сохранения файла.
-
+    
     Returns:
         Сообщение об успехе или ошибке.
     """
@@ -225,7 +226,7 @@ def extract_model(hps, ckpt, epoch, step, filepath):
 class TrainingMonitor:
     """
     Монитор обучения с debiased EMA и отслеживанием перетренировки.
-
+    
     Обеспечивает точное соответствие с графиками TensorBoard.
     Определяет статус обучения на основе деградации mel_sim:
     - Деградация 2%+ → предупреждение
@@ -250,7 +251,9 @@ class TrainingMonitor:
         }
 
     def update(self, key: str, value: float, epoch: int) -> float:
-        """Обновляет метрику и возвращает сглаженное значение (debiased EMA)."""
+        """
+        Обновляет метрику и возвращает сглаженное значение (debiased EMA).
+        """
         value = float(value)
 
         # Инициализация при первом вызове
@@ -282,11 +285,11 @@ class TrainingMonitor:
     def get_status(self, epoch: int) -> tuple:
         """
         Определяет статус обучения на основе деградации mel_sim.
-
+        
         Логика:
         - mel_sim упал на 2%+ от рекорда → предупреждение
         - mel_sim упал на 5%+ от рекорда → перетренировка
-
+        
         Returns:
             (status_code, message)
             status_code: "warmup", "normal", "warning", "overtraining"
@@ -313,7 +316,9 @@ class TrainingMonitor:
         return ("normal", "")
 
     def restore_from_tensorboard(self, log_dir: str, current_epoch: int):
-        """Восстанавливает состояние EMA и рекордов из логов TensorBoard."""
+        """
+        Восстанавливает состояние EMA и рекордов из логов TensorBoard.
+        """
         try:
             from tensorboard.backend.event_processing import event_accumulator
 
