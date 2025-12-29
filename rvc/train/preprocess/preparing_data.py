@@ -20,7 +20,7 @@ sys.path.append(os.getcwd())
 
 from rvc.lib.audio import load_audio
 from rvc.lib.rmvpe import RMVPE
-# from rvc.lib.hpa_rmvpe import HPA_RMVPE
+from rvc.lib.hpa_rmvpe import HPA_RMVPE
 
 exp_dir = str(sys.argv[1])  # Директория с данными, подготовленными скриптом `preprocess.py`
 arch_fairseq = str(sys.argv[2])  # Архитектура Fairseq / Fairseq, Fairseq2
@@ -44,7 +44,7 @@ class DataPreprocessor:
 
         # Инициализация моделей
         self.model_rmvpe = RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "rmvpe.pt"), "cuda")
-        # self.model_hpa_rmvpe = HPA_RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "hpa-rmvpe.pt"), "cuda", True)
+        self.model_hpa_rmvpe = HPA_RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "hpa-rmvpe.pt"), "cuda", True)
         self.hubert_model = self._load_hubert_model(arch_fairseq)
 
     def _load_hubert_model(self, arch_fairseq):
@@ -71,10 +71,11 @@ class DataPreprocessor:
         audio = load_audio(path, self.sample_rate)
         if f0_method == "rmvpe":
             return self.model_rmvpe.infer_from_audio(audio, 0.03)
-        elif f0_method == "rmvpe+":
+        if f0_method == "rmvpe+":
             return self.model_rmvpe.infer_from_audio_modified(audio, 0.02)
-        # elif f0_method == "hpa-rmvpe":
-        #     return self.model_hpa_rmvpe.infer_from_audio(audio, 0.03)
+        if f0_method == "hpa-rmvpe":
+            return self.model_hpa_rmvpe.infer_from_audio(audio, 0.03)
+        raise ValueError("Неизвестное значение для 'f0_method'! Доступные варианты: 'rmvpe', 'rmvpe+' и 'hpa-rmvpe'.")
 
     def coarse_f0(self, f0):
         """Квантование F0"""
