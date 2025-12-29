@@ -4,7 +4,7 @@
 
 Использование:
     python split_checkpoint.py path/to/checkpoint.pth output/folder/
-
+    
 Создаст:
     output/folder/G_pretrain.pth
     output/folder/D_pretrain.pth
@@ -20,7 +20,7 @@ import torch
 def split_checkpoint(checkpoint_path: str, output_dir: str):
     """
     Разделяет единый чекпоинт на отдельные G и D файлы.
-
+    
     Args:
         checkpoint_path: Путь к единому чекпоинту (checkpoint.pth)
         output_dir: Папка для сохранения G_pretrain.pth и D_pretrain.pth

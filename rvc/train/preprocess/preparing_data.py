@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import traceback
 import warnings
 from random import shuffle
 
@@ -16,8 +17,10 @@ import torch
 from tqdm import tqdm
 
 sys.path.append(os.getcwd())
+
 from rvc.lib.audio import load_audio
 from rvc.lib.rmvpe import RMVPE
+# from rvc.lib.hpa_rmvpe import HPA_RMVPE
 
 exp_dir = str(sys.argv[1])  # Директория с данными, подготовленными скриптом `preprocess.py`
 arch_fairseq = str(sys.argv[2])  # Архитектура Fairseq / Fairseq, Fairseq2
@@ -27,9 +30,8 @@ include_mutes = int(sys.argv[5])  # Количество мьют файлов �
 
 
 class DataPreprocessor:
-    def __init__(self, f0_method, arch_fairseq):
+    def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.f0_method = f0_method
 
         # Настройки для F0
         self.sample_rate = 16000
@@ -41,12 +43,8 @@ class DataPreprocessor:
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
 
         # Инициализация моделей
-        if f0_method == "hpa-rmvpe":
-            model_path = os.path.join(os.getcwd(), "rvc", "models", "predictors", "hpa-rmvpe.pt")
-            self.pitch_model = RMVPE(model_path, self.device, hpa=True)
-        else:
-            model_path = os.path.join(os.getcwd(), "rvc", "models", "predictors", "rmvpe.pt")
-            self.pitch_model = RMVPE(model_path, self.device, hpa=False)
+        self.model_rmvpe = RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "rmvpe.pt"), "cuda")
+        # self.model_hpa_rmvpe = HPA_RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "hpa-rmvpe.pt"), "cuda", True)
         self.hubert_model = self._load_hubert_model(arch_fairseq)
 
     def _load_hubert_model(self, arch_fairseq):
@@ -67,16 +65,16 @@ class DataPreprocessor:
         else:
             raise ValueError("Неизвестное значение для 'arch_fairseq'! Доступные варианты: 'Fairseq', 'Fairseq2'.")
 
-    def compute_f0(self, path):
+
+    def compute_f0(self, path, f0_method):
         """Вычисление F0"""
         audio = load_audio(path, self.sample_rate)
-        if self.f0_method == "rmvpe":
-            return self.pitch_model.infer_from_audio(audio, 0.03)
-        if self.f0_method == "rmvpe+":
-            return self.pitch_model.infer_from_audio_medfilt(audio, 0.02)
-        if self.f0_method == "hpa-rmvpe":
-            return self.pitch_model.infer_from_audio(audio, 0.03)
-        raise ValueError("Неизвестное значение для 'f0_method'! Доступные варианты: 'rmvpe', 'rmvpe+' и 'hpa-rmvpe'.")
+        if f0_method == "rmvpe":
+            return self.model_rmvpe.infer_from_audio(audio, 0.03)
+        elif f0_method == "rmvpe+":
+            return self.model_rmvpe.infer_from_audio_modified(audio, 0.02)
+        # elif f0_method == "hpa-rmvpe":
+        #     return self.model_hpa_rmvpe.infer_from_audio(audio, 0.03)
 
     def coarse_f0(self, f0):
         """Квантование F0"""
@@ -109,6 +107,7 @@ class DataPreprocessor:
 
     def process_files(self):
         """Основной метод обработки файлов"""
+        # Подготовка путей
         inp_root = f"{exp_dir}/data/sliced_audios_16k"
         f0_quant_path = f"{exp_dir}/data/f0_quantized"
         f0_voiced_path = f"{exp_dir}/data/f0_voiced"
@@ -118,12 +117,14 @@ class DataPreprocessor:
         os.makedirs(f0_voiced_path, exist_ok=True)
         os.makedirs(features_path, exist_ok=True)
 
+        # Сбор файлов для обработки
         files = sorted([f for f in os.listdir(inp_root) if f.endswith(".wav") and "spec" not in f])
         if not files:
             self._raise_no_files_error()
 
         print(f"\nДанных, готовых к обработке - {len(files)}")
 
+        # Обработка файлов
         for file in tqdm(files, desc="Извлечение тона"):
             try:
                 inp_path = f"{inp_root}/{file}"
@@ -131,12 +132,12 @@ class DataPreprocessor:
                 opt_path2 = f"{f0_voiced_path}/{file}"
 
                 if not (os.path.exists(opt_path1 + ".npy") and os.path.exists(opt_path2 + ".npy")):
-                    featur_pit = self.compute_f0(inp_path)
+                    featur_pit = self.compute_f0(inp_path, f0_method)
                     np.save(opt_path2, featur_pit, allow_pickle=False)
                     coarse_pit = self.coarse_f0(featur_pit)
                     np.save(opt_path1, coarse_pit, allow_pickle=False)
-            except Exception as e:
-                raise RuntimeError(f"Ошибка извлечения тона!\nФайл - {inp_path}\n{e}")
+            except:
+                raise RuntimeError(f"Ошибка извлечения тона!\nФайл - {inp_path}\n{traceback.format_exc()}")
 
         for file in tqdm(files, desc="Извлечение признаков"):
             try:
@@ -148,8 +149,8 @@ class DataPreprocessor:
                     if np.isnan(feats).sum() > 0:
                         raise TypeError(f"Файл {file} содержит некорректные значения (NaN).")
                     np.save(out_path, feats, allow_pickle=False)
-            except Exception as e:
-                raise RuntimeError(f"Ошибка извлечения признаков!\nФайл - {wav_path}\n{e}")
+            except:
+                raise RuntimeError(f"Ошибка извлечения признаков!\nФайл - {wav_path}\n{traceback.format_exc()}")
 
         print("Обработка данных успешно завершена!")
 
@@ -213,10 +214,11 @@ def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2)
 
 if __name__ == "__main__":
     try:
-        preprocessor = DataPreprocessor(f0_method, arch_fairseq)
+        preprocessor = DataPreprocessor()
         preprocessor.process_files()
 
         generate_filelist(exp_dir, sample_rate, include_mutes)
     except Exception as e:
-        print(f"Критическая ошибка: {e}")
+        print(f"Критическая ошибка: {str(e)}")
+        print(traceback.format_exc())
         sys.exit(1)
