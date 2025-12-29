@@ -129,8 +129,8 @@ def main():
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
 
     device = torch.device(
-        "cuda" if torch.cuda.is_available() else 
-        "mps" if torch.backends.mps.is_available() else 
+        "cuda" if torch.cuda.is_available() else
+        "mps" if torch.backends.mps.is_available() else
         "cpu"
     )
     gpus = [int(item) for item in hps.gpus.split("-")] if device.type == "cuda" else [0]
