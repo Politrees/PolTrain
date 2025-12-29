@@ -35,8 +35,8 @@ def convert_pad_shape(pad_shape):
     Args:
         pad_shape: The pad shape..
     """
-    l = pad_shape[::-1]
-    pad_shape = [item for sublist in l for item in sublist]
+    layer = pad_shape[::-1]
+    pad_shape = [item for sublist in layer for item in sublist]
     return pad_shape
 
 
