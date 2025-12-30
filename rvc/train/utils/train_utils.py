@@ -38,7 +38,7 @@ def save_checkpoint(net_g, optim_g, net_d, optim_d, learning_rate, epoch, checkp
     )
 
     torch.save(checkpoint_data, checkpoint_path)
-    print(f"▸ Сохранён чекпоинт: '{os.path.basename(checkpoint_path)}' (Эпоха {epoch})", flush=True)
+    print(f"▸ Сохранён чекпоинт: '{os.path.basename(checkpoint_path)}'", flush=True)
 
 
 def load_unified_checkpoint(checkpoint_path, net_g, optim_g, net_d, optim_d):
