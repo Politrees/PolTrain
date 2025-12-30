@@ -38,7 +38,7 @@ def save_checkpoint(net_g, optim_g, net_d, optim_d, learning_rate, epoch, checkp
     )
 
     torch.save(checkpoint_data, checkpoint_path)
-    print(f"▸ Сохранён чекпоинт: '{os.path.basename(checkpoint_path)}' | (Эпоха {epoch})", flush=True)
+    print(f"▸ Сохранён чекпоинт: '{os.path.basename(checkpoint_path)}' (Эпоха {epoch})", flush=True)
 
 
 def load_unified_checkpoint(checkpoint_path, net_g, optim_g, net_d, optim_d):
@@ -69,7 +69,7 @@ def load_unified_checkpoint(checkpoint_path, net_g, optim_g, net_d, optim_d):
     optim_d.load_state_dict(checkpoint["discriminator"]["optimizer"])
 
     epoch = checkpoint["epoch"]
-    print(f"Загружен чекпоинт: '{os.path.basename(checkpoint_path)}' | (Эпоха {epoch})", flush=True)
+    print(f"Загружен чекпоинт: '{os.path.basename(checkpoint_path)}' (Эпоха {epoch})", flush=True)
     return epoch
 
 
@@ -118,7 +118,7 @@ def load_legacy_checkpoints(model_dir, net_g, optim_g, net_d, optim_d):
                     print(f"Несоответствие эпох: G={epoch_g}, D={epoch_d}. Пробуем бэкап...", flush=True)
                     continue
 
-                print(f"Загружены чекпоинты '{g_file}' и '{d_file}' | (Эпоха {epoch_g})", flush=True)
+                print(f"Загружены чекпоинты '{g_file}' и '{d_file}' (Эпоха {epoch_g})", flush=True)
                 return epoch_g
             except Exception as e:
                 print(f"Ошибка загрузки {g_file}/{d_file}:\n{e}.\nПробуем бэкап...", flush=True)
