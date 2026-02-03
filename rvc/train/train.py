@@ -236,6 +236,47 @@ def run(hps, rank, n_gpus, device, device_id):
         if epoch_str is not None:
             epoch_str += 1
             global_step = (epoch_str - 1) * len(train_loader)
+
+            # Пересчёт EMA и лучших значений из TensorBoard
+            if rank == 0:
+                try:
+                    from tensorboard.backend.event_processing import event_accumulator
+                    ea = event_accumulator.EventAccumulator(os.path.join(hps.model_dir, "eval"), size_guidance={'scalars': 0})
+                    ea.Reload()
+
+                    if ea.Tags().get('scalars'):
+                        print(f"\nСинхронизация метрик из TensorBoard...", flush=True)
+                        for tag in ea.Tags()['scalars']:
+                            events = ea.Scalars(tag)
+                            if not events:
+                                continue
+
+                            step_values = {e.step: float(e.value) for e in events if e.step < epoch_str}
+                            sorted_steps = sorted(step_values.keys())
+
+                            smoothing, ema_n, ema_d = 0.987, 0.0, 0.0
+                            for step in sorted_steps:
+                                val = step_values[step]
+                                ema_n = ema_n * smoothing + val * (1.0 - smoothing)
+                                ema_d = ema_d * smoothing + (1.0 - smoothing)
+                                current = ema_n / ema_d
+                                if tag == "metrics/mel_sim" and current >= best_metrics["metrics/mel_sim"]["value"]:
+                                    best_metrics["metrics/mel_sim"] = {"value": current, "epoch": step}
+
+                            if sorted_steps:
+                                metrics_ema[tag] = current
+
+                    curr_mel = metrics_ema.get('metrics/mel_sim', 0.0)
+                    best_val = best_metrics['metrics/mel_sim']['value']
+                    best_ep = best_metrics['metrics/mel_sim']['epoch']
+
+                    if best_val == -float('inf'):
+                        best_val, best_ep = 0.0, 0
+
+                    print(f"Last Mel: {curr_mel:.2f}% | Best Mel: {best_val:.2f}% (на эпохе {best_ep})", flush=True)
+
+                except Exception as e:
+                    print(f"Ошибка чтения TensorBoard: {e}", flush=True)
         else:
             epoch_str = 1
             global_step = 0
@@ -260,47 +301,6 @@ def run(hps, rank, n_gpus, device, device_id):
                 except Exception:
                     print("Загрузка претрейна дискриминатора в небезопасном режиме...", flush=True)
                     d_model.load_state_dict(torch.load(hps.pretrain_d, map_location="cpu", weights_only=False)["model"])
-
-        # Пересчёт EMA и лучших значений из TensorBoard
-        if loaded and rank == 0:
-            try:
-                from tensorboard.backend.event_processing import event_accumulator
-                ea = event_accumulator.EventAccumulator(os.path.join(hps.model_dir, "eval"), size_guidance={'scalars': 0})
-                ea.Reload()
-
-                if ea.Tags().get('scalars'):
-                    print(f"\nСинхронизация метрик из TensorBoard...", flush=True)
-                    for tag in ea.Tags()['scalars']:
-                        events = ea.Scalars(tag)
-                        if not events:
-                            continue
-
-                        step_values = {e.step: float(e.value) for e in events if e.step < epoch_str}
-                        sorted_steps = sorted(step_values.keys())
-
-                        smoothing, ema_n, ema_d = 0.987, 0.0, 0.0
-                        for step in sorted_steps:
-                            val = step_values[step]
-                            ema_n = ema_n * smoothing + val * (1.0 - smoothing)
-                            ema_d = ema_d * smoothing + (1.0 - smoothing)
-                            current = ema_n / ema_d
-                            if tag == "metrics/mel_sim" and current >= best_metrics["metrics/mel_sim"]["value"]:
-                                best_metrics["metrics/mel_sim"] = {"value": current, "epoch": step}
-
-                        if sorted_steps:
-                            metrics_ema[tag] = current
-
-                curr_mel = metrics_ema.get('metrics/mel_sim', 0.0)
-                best_val = best_metrics['metrics/mel_sim']['value']
-                best_ep = best_metrics['metrics/mel_sim']['epoch']
-
-                if best_val == -float('inf'):
-                    best_val, best_ep = 0.0, 0
-
-                print(f"Last Mel: {curr_mel:.2f}% | Best Mel: {best_val:.2f}% (на эпохе {best_ep})", flush=True)
-
-            except Exception as e:
-                print(f"Ошибка чтения TensorBoard: {e}", flush=True)
 
         # Настройка scheduler
         if hps.optimizer == "AdaBelief":
