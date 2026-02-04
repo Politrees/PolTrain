@@ -20,10 +20,9 @@ sys.path.append(os.getcwd())
 
 from rvc.lib.audio import load_audio
 from rvc.lib.rmvpe import RMVPE
-from rvc.lib.hpa_rmvpe import HPA_RMVPE
 
 exp_dir = str(sys.argv[1])  # Директория с данными, подготовленными скриптом `preprocess.py`
-arch_fairseq = str(sys.argv[2])  # Архитектура Fairseq / Fairseq, Fairseq2
+arch_fairseq = str(sys.argv[2])  # Архитектура Fairseq / Fairseq, Fairseq2
 f0_method = str(sys.argv[3])  # Метод извлечения F0 / rmvpe, rmvpe+, hpa-rmvpe
 sample_rate = int(sys.argv[4])  # Частота дискретизации для генерации filelist.txt
 include_mutes = int(sys.argv[5])  # Количество мьют файлов на одного спикера / По умолчанию = 2
@@ -43,8 +42,8 @@ class DataPreprocessor:
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
 
         # Инициализация моделей
-        self.model_rmvpe = RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "rmvpe.pt"), "cuda")
-        self.model_hpa_rmvpe = HPA_RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "hpa-rmvpe.pt"), "cuda", True)
+        self.model_rmvpe = RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "rmvpe.pt"), self.device, hpa=False)
+        self.model_hpa_rmvpe = RMVPE(os.path.join(os.getcwd(), "rvc", "models", "predictors", "hpa-rmvpe.pt"), self.device, hpa=True)
         self.hubert_model = self._load_hubert_model(arch_fairseq)
 
     def _load_hubert_model(self, arch_fairseq):
@@ -65,14 +64,13 @@ class DataPreprocessor:
         else:
             raise ValueError("Неизвестное значение для 'arch_fairseq'! Доступные варианты: 'Fairseq', 'Fairseq2'.")
 
-
     def compute_f0(self, path, f0_method):
         """Вычисление F0"""
         audio = load_audio(path, self.sample_rate)
         if f0_method == "rmvpe":
             return self.model_rmvpe.infer_from_audio(audio, 0.03)
         if f0_method == "rmvpe+":
-            return self.model_rmvpe.infer_from_audio_modified(audio, 0.02)
+            return self.model_rmvpe.infer_from_audio_medfilt(audio, 0.02)
         if f0_method == "hpa-rmvpe":
             return self.model_hpa_rmvpe.infer_from_audio(audio, 0.03)
         raise ValueError("Неизвестное значение для 'f0_method'! Доступные варианты: 'rmvpe', 'rmvpe+' и 'hpa-rmvpe'.")
@@ -171,7 +169,6 @@ class DataPreprocessor:
 def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2):
     mute_base_path = os.path.join(os.getcwd(), "logs", "mute")
 
-    f0_dir, f0nsf_dir = None, None
     gt_wavs_dir = os.path.join(model_path, "data", "sliced_audios")
     feature_dir = os.path.join(model_path, "data", "features")
     f0_dir = os.path.join(model_path, "data", "f0_quantized")

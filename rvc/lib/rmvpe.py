@@ -11,6 +11,12 @@ N_MELS = 128
 N_CLASS = 360
 
 
+def autopad(k, p=None):
+    if p is None:
+        p = k // 2 if isinstance(k, int) else [x // 2 for x in k]
+    return p
+
+
 class BiGRU(nn.Module):
     def __init__(self, input_features, hidden_features, num_layers):
         super().__init__()
@@ -206,6 +212,298 @@ class DeepUnet(nn.Module):
         return x
 
 
+# ==================== HPA Components ====================
+
+
+class Conv(nn.Module):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
+        super().__init__()
+        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU() if act else nn.Identity()
+
+    def forward(self, x):
+        return self.act(self.bn(self.conv(x)))
+
+
+class DSConv(nn.Module):
+    def __init__(self, c1, c2, k=3, s=1, p=None, act=True):
+        super().__init__()
+        self.dwconv = nn.Conv2d(c1, c1, k, s, autopad(k, p), groups=c1, bias=False)
+        self.pwconv = nn.Conv2d(c1, c2, 1, 1, 0, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU() if act else nn.Identity()
+
+    def forward(self, x):
+        return self.act(self.bn(self.pwconv(self.dwconv(x))))
+
+
+class DS_Bottleneck(nn.Module):
+    def __init__(self, c1, c2, k=3, shortcut=True):
+        super().__init__()
+        self.dsconv1 = DSConv(c1, c1, k=3, s=1)
+        self.dsconv2 = DSConv(c1, c2, k=k, s=1)
+        self.shortcut = shortcut and c1 == c2
+
+    def forward(self, x):
+        return x + self.dsconv2(self.dsconv1(x)) if self.shortcut else self.dsconv2(self.dsconv1(x))
+
+
+class DS_C3k(nn.Module):
+    def __init__(self, c1, c2, n=1, k=3, e=0.5):
+        super().__init__()
+        self.cv1 = Conv(c1, int(c2 * e), 1, 1)
+        self.cv2 = Conv(c1, int(c2 * e), 1, 1)
+        self.cv3 = Conv(2 * int(c2 * e), c2, 1, 1)
+        self.m = nn.Sequential(*[DS_Bottleneck(int(c2 * e), int(c2 * e), k=k, shortcut=True) for _ in range(n)])
+
+    def forward(self, x):
+        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
+
+
+class DS_C3k2(nn.Module):
+    def __init__(self, c1, c2, n=1, k=3, e=0.5):
+        super().__init__()
+        self.cv1 = Conv(c1, int(c2 * e), 1, 1)
+        self.m = DS_C3k(int(c2 * e), int(c2 * e), n=n, k=k, e=1.0)
+        self.cv2 = Conv(int(c2 * e), c2, 1, 1)
+
+    def forward(self, x):
+        return self.cv2(self.m(self.cv1(x)))
+
+
+class AdaptiveHyperedgeGeneration(nn.Module):
+    def __init__(self, in_channels, num_hyperedges, num_heads):
+        super().__init__()
+        self.num_hyperedges = num_hyperedges
+        self.num_heads = num_heads
+        self.head_dim = max(1, in_channels // num_heads)
+        self.global_proto = nn.Parameter(torch.randn(num_hyperedges, in_channels))
+        self.context_mapper = nn.Linear(2 * in_channels, num_hyperedges * in_channels, bias=False)
+        self.query_proj = nn.Linear(in_channels, in_channels, bias=False)
+        self.scale = self.head_dim ** -0.5
+
+    def forward(self, x):
+        B, N, C = x.shape
+        avg_pool = F.adaptive_avg_pool1d(x.permute(0, 2, 1), 1).squeeze(-1)
+        max_pool = F.adaptive_max_pool1d(x.permute(0, 2, 1), 1).squeeze(-1)
+        context = torch.cat((avg_pool, max_pool), dim=1)
+        P = self.global_proto.unsqueeze(0) + self.context_mapper(context).view(B, self.num_hyperedges, C)
+
+        Q = self.query_proj(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+        K = P.view(B, self.num_hyperedges, self.num_heads, self.head_dim).permute(0, 2, 3, 1)
+        attn = ((Q @ K) * self.scale).mean(dim=1).permute(0, 2, 1)
+        return F.softmax(attn, dim=-1)
+
+
+class HypergraphConvolution(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.W_e = nn.Linear(in_channels, in_channels, bias=False)
+        self.W_v = nn.Linear(in_channels, out_channels, bias=False)
+        self.act = nn.SiLU()
+
+    def forward(self, x, A):
+        return x + self.act(self.W_v(A.transpose(1, 2).bmm(self.act(self.W_e(A.bmm(x))))))
+
+
+class AdaptiveHypergraphComputation(nn.Module):
+    def __init__(self, in_channels, out_channels, num_hyperedges, num_heads):
+        super().__init__()
+        self.adaptive_hyperedge_gen = AdaptiveHyperedgeGeneration(in_channels, num_hyperedges, num_heads)
+        self.hypergraph_conv = HypergraphConvolution(in_channels, out_channels)
+
+    def forward(self, x):
+        B, _, H, W = x.shape
+        x_flat = x.flatten(2).permute(0, 2, 1)
+        A = self.adaptive_hyperedge_gen(x_flat)
+        out = self.hypergraph_conv(x_flat, A)
+        return out.permute(0, 2, 1).view(B, -1, H, W)
+
+
+class C3AH(nn.Module):
+    def __init__(self, c1, c2, num_hyperedges, num_heads, e=0.5):
+        super().__init__()
+        self.cv1 = Conv(c1, int(c1 * e), 1, 1)
+        self.cv2 = Conv(c1, int(c1 * e), 1, 1)
+        self.ahc = AdaptiveHypergraphComputation(int(c1 * e), int(c1 * e), num_hyperedges, num_heads)
+        self.cv3 = Conv(2 * int(c1 * e), c2, 1, 1)
+
+    def forward(self, x):
+        return self.cv3(torch.cat((self.ahc(self.cv2(x)), self.cv1(x)), dim=1))
+
+
+class HyperACE(nn.Module):
+    def __init__(self, in_channels, out_channels, num_hyperedges=16, num_heads=8, k=2, l=1, c_h=0.5, c_l=0.25):
+        super().__init__()
+        c2, c3, c4, c5 = in_channels
+        c_mid = c4
+        self.fuse_conv = Conv(c2 + c3 + c4 + c5, c_mid, 1, 1)
+        self.c_h = int(c_mid * c_h)
+        self.c_l = int(c_mid * c_l)
+        self.c_s = c_mid - self.c_h - self.c_l
+        self.high_order_branch = nn.ModuleList([
+            C3AH(self.c_h, self.c_h, num_hyperedges=num_hyperedges, num_heads=num_heads, e=1.0) 
+            for _ in range(k)
+        ])
+        self.high_order_fuse = Conv(self.c_h * k, self.c_h, 1, 1)
+        self.low_order_branch = nn.Sequential(*[DS_C3k(self.c_l, self.c_l, n=1, k=3, e=1.0) for _ in range(l)])
+        self.final_fuse = Conv(self.c_h + self.c_l + self.c_s, out_channels, 1, 1)
+
+    def forward(self, x):
+        B2, B3, B4, B5 = x
+        _, _, H4, W4 = B4.shape
+
+        fused = torch.cat((
+            F.interpolate(B2, size=(H4, W4), mode='bilinear', align_corners=False),
+            F.interpolate(B3, size=(H4, W4), mode='bilinear', align_corners=False),
+            B4,
+            F.interpolate(B5, size=(H4, W4), mode='bilinear', align_corners=False)
+        ), dim=1)
+
+        x_h, x_l, x_s = self.fuse_conv(fused).split([self.c_h, self.c_l, self.c_s], dim=1)
+
+        high_out = self.high_order_fuse(torch.cat([m(x_h) for m in self.high_order_branch], dim=1))
+        low_out = self.low_order_branch(x_l)
+
+        return self.final_fuse(torch.cat((high_out, low_out, x_s), dim=1))
+
+
+class GatedFusion(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.zeros(1, in_channels, 1, 1))
+
+    def forward(self, f_in, h):
+        return f_in + self.gamma * h
+
+
+class YOLO13Encoder(nn.Module):
+    def __init__(self, in_channels, base_channels=32):
+        super().__init__()
+        self.stem = DSConv(in_channels, base_channels, k=3, s=1)
+
+        self.p2 = nn.Sequential(
+            DSConv(base_channels, base_channels * 2, k=3, s=(2, 2)),
+            DS_C3k2(base_channels * 2, base_channels * 2, n=1)
+        )
+
+        self.p3 = nn.Sequential(
+            DSConv(base_channels * 2, base_channels * 4, k=3, s=(2, 2)),
+            DS_C3k2(base_channels * 4, base_channels * 4, n=2)
+        )
+
+        self.p4 = nn.Sequential(
+            DSConv(base_channels * 4, base_channels * 8, k=3, s=(2, 2)),
+            DS_C3k2(base_channels * 8, base_channels * 8, n=2)
+        )
+
+        self.p5 = nn.Sequential(
+            DSConv(base_channels * 8, base_channels * 16, k=3, s=(2, 2)),
+            DS_C3k2(base_channels * 16, base_channels * 16, n=1)
+        )
+
+        self.out_channels = [base_channels * 2, base_channels * 4, base_channels * 8, base_channels * 16]
+
+    def forward(self, x):
+        x = self.stem(x)
+        p2 = self.p2(x)
+        p3 = self.p3(p2)
+        p4 = self.p4(p3)
+        p5 = self.p5(p4)
+        return [p2, p3, p4, p5]
+
+
+class YOLO13FullPADDecoder(nn.Module):
+    def __init__(self, encoder_channels, hyperace_out_c, out_channels_final):
+        super().__init__()
+        c_p2, c_p3, c_p4, c_p5 = encoder_channels
+        c_d5, c_d4, c_d3, c_d2 = c_p5, c_p4, c_p3, c_p2
+
+        self.h_to_d5 = Conv(hyperace_out_c, c_d5, 1, 1)
+        self.h_to_d4 = Conv(hyperace_out_c, c_d4, 1, 1)
+        self.h_to_d3 = Conv(hyperace_out_c, c_d3, 1, 1)
+        self.h_to_d2 = Conv(hyperace_out_c, c_d2, 1, 1)
+
+        self.fusion_d5 = GatedFusion(c_d5)
+        self.fusion_d4 = GatedFusion(c_d4)
+        self.fusion_d3 = GatedFusion(c_d3)
+        self.fusion_d2 = GatedFusion(c_d2)
+
+        self.skip_p5 = Conv(c_p5, c_d5, 1, 1)
+        self.skip_p4 = Conv(c_p4, c_d4, 1, 1)
+        self.skip_p3 = Conv(c_p3, c_d3, 1, 1)
+        self.skip_p2 = Conv(c_p2, c_d2, 1, 1)
+
+        self.up_d5 = DS_C3k2(c_d5, c_d4, n=1)
+        self.up_d4 = DS_C3k2(c_d4, c_d3, n=1)
+        self.up_d3 = DS_C3k2(c_d3, c_d2, n=1)
+
+        self.final_d2 = DS_C3k2(c_d2, c_d2, n=1)
+        self.final_conv = Conv(c_d2, out_channels_final, 1, 1)
+
+    def forward(self, enc_feats, h_ace):
+        p2, p3, p4, p5 = enc_feats
+
+        d5 = self.skip_p5(p5)
+        h5 = self.h_to_d5(F.interpolate(h_ace, size=d5.shape[2:], mode='bilinear', align_corners=False))
+        d5_fused = self.fusion_d5(d5, h5)
+
+        d4 = self.up_d5(F.interpolate(d5_fused, size=p4.shape[2:], mode='bilinear', align_corners=False)) + self.skip_p4(p4)
+        h4 = self.h_to_d4(F.interpolate(h_ace, size=d4.shape[2:], mode='bilinear', align_corners=False))
+        d4_fused = self.fusion_d4(d4, h4)
+
+        d3 = self.up_d4(F.interpolate(d4_fused, size=p3.shape[2:], mode='bilinear', align_corners=False)) + self.skip_p3(p3)
+        h3 = self.h_to_d3(F.interpolate(h_ace, size=d3.shape[2:], mode='bilinear', align_corners=False))
+        d3_fused = self.fusion_d3(d3, h3)
+
+        d2 = self.up_d3(F.interpolate(d3_fused, size=p2.shape[2:], mode='bilinear', align_corners=False)) + self.skip_p2(p2)
+        h2 = self.h_to_d2(F.interpolate(h_ace, size=d2.shape[2:], mode='bilinear', align_corners=False))
+        d2_fused = self.fusion_d2(d2, h2)
+
+        return self.final_conv(self.final_d2(d2_fused))
+
+
+class HPADeepUnet(nn.Module):
+    def __init__(
+        self,
+        in_channels=1,
+        en_out_channels=16,
+        base_channels=64,
+        hyperace_k=2,
+        hyperace_l=1,
+        num_hyperedges=16,
+        num_heads=8,
+    ):
+        super().__init__()
+        self.encoder = YOLO13Encoder(in_channels, base_channels)
+        enc_ch = self.encoder.out_channels
+
+        self.hyperace = HyperACE(
+            in_channels=enc_ch,
+            out_channels=enc_ch[-1],
+            num_hyperedges=num_hyperedges,
+            num_heads=num_heads,
+            k=hyperace_k,
+            l=hyperace_l,
+        )
+
+        self.decoder = YOLO13FullPADDecoder(
+            encoder_channels=enc_ch,
+            hyperace_out_c=enc_ch[-1],
+            out_channels_final=en_out_channels,
+        )
+
+    def forward(self, x):
+        features = self.encoder(x)
+        h_ace = self.hyperace(features)
+        out = self.decoder(features, h_ace)
+        return F.interpolate(out, size=x.shape[2:], mode='bilinear', align_corners=False)
+
+
+# ==================== E2E Model ====================
+
+
 class E2E(nn.Module):
     def __init__(
         self,
@@ -216,24 +514,33 @@ class E2E(nn.Module):
         inter_layers=4,
         in_channels=1,
         en_out_channels=16,
+        hpa=False,
     ):
         super().__init__()
-        self.unet = DeepUnet(
-            kernel_size,
-            n_blocks,
-            en_de_layers,
-            inter_layers,
-            in_channels,
-            en_out_channels,
-        )
-        self.cnn = nn.Conv2d(en_out_channels, 3, (3, 3), padding=(1, 1))
-        if n_gru:
-            self.fc = nn.Sequential(
-                BiGRU(3 * 128, 256, n_gru),
-                nn.Linear(512, N_CLASS),
-                nn.Dropout(0.25),
-                nn.Sigmoid(),
+        if hpa:
+            self.unet = HPADeepUnet(
+                in_channels=in_channels,
+                en_out_channels=en_out_channels,
+                base_channels=64,
+                hyperace_k=2,
+                hyperace_l=1,
+                num_hyperedges=16,
+                num_heads=4,
             )
+        else:
+            self.unet = DeepUnet(
+                kernel_size,
+                n_blocks,
+                en_de_layers,
+                inter_layers,
+                in_channels,
+                en_out_channels,
+            )
+
+        self.cnn = nn.Conv2d(en_out_channels, 3, (3, 3), padding=(1, 1))
+
+        if n_gru:
+            self.fc = nn.Sequential(BiGRU(3 * 128, 256, n_gru), nn.Linear(512, N_CLASS), nn.Dropout(0.25), nn.Sigmoid())
         else:
             self.fc = nn.Sequential(nn.Linear(3 * N_MELS, N_CLASS), nn.Dropout(0.25), nn.Sigmoid())
 
@@ -242,6 +549,9 @@ class E2E(nn.Module):
         x = self.cnn(self.unet(mel)).transpose(1, 2).flatten(-2)
         x = self.fc(x)
         return x
+
+
+# ==================== MelSpectrogram ====================
 
 
 class MelSpectrogram(torch.nn.Module):
@@ -306,26 +616,41 @@ class MelSpectrogram(torch.nn.Module):
         return log_mel_spec
 
 
+# ==================== Unified RMVPE Class ====================
+
+
 class RMVPE:
-    def __init__(self, model_path, device=None):
+    def __init__(self, model_path, device=None, hpa=False):
+        self.hpa = hpa
+        self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         self.resample_kernel = {}
-        model = E2E(4, 1, (2, 2))
+
+        model = E2E(4, 1, (2, 2), hpa=hpa)
         ckpt = torch.load(model_path, map_location="cpu", weights_only=True)
         model.load_state_dict(ckpt)
         model.eval()
-        self.model = model
-        self.resample_kernel = {}
-        self.device = device
+        self.model = model.to(device)
+
         self.mel_extractor = MelSpectrogram(N_MELS, 16000, 1024, 160, None, 30, 8000).to(device)
-        self.model = self.model.to(device)
         cents_mapping = 20 * np.arange(N_CLASS) + 1997.3794084376191
         self.cents_mapping = np.pad(cents_mapping, (4, 4))
 
-    def mel2hidden(self, mel):
+    def mel2hidden(self, mel, chunk_size=32000):
         with torch.no_grad():
             n_frames = mel.shape[-1]
             mel = F.pad(mel, (0, 32 * ((n_frames - 1) // 32 + 1) - n_frames), mode="reflect")
-            hidden = self.model(mel)
+
+            if self.hpa:
+                output_chunks = []
+                pad_frames = mel.shape[-1]
+                for start in range(0, pad_frames, chunk_size):
+                    mel_chunk = mel[..., start:min(start + chunk_size, pad_frames)]
+                    out_chunk = self.model(mel_chunk)
+                    output_chunks.append(out_chunk)
+                hidden = torch.cat(output_chunks, dim=1)
+            else:
+                hidden = self.model(mel)
+
             return hidden[:, :n_frames]
 
     def decode(self, hidden, thred=0.03):
@@ -339,15 +664,13 @@ class RMVPE:
         mel = self.mel_extractor(audio, center=True)
         hidden = self.mel2hidden(mel)
         hidden = hidden.squeeze(0).cpu().numpy()
+        if self.hpa:
+            hidden = hidden.astype(np.float32)
         f0 = self.decode(hidden, thred=thred)
         return f0
 
-    def infer_from_audio_modified(self, audio, thred=0.03, f0_min=50, f0_max=1100, window_size=5):
-        audio = torch.from_numpy(audio).float().to(self.device).unsqueeze(0)
-        mel = self.mel_extractor(audio, center=True)
-        hidden = self.mel2hidden(mel)
-        hidden = hidden.squeeze(0).cpu().numpy()
-        f0 = self.decode(hidden, thred=thred)
+    def infer_from_audio_medfilt(self, audio, thred=0.03, f0_min=50, f0_max=1100, window_size=3):
+        f0 = self.infer_from_audio(audio, thred)
         f0[(f0 < f0_min) | (f0 > f0_max)] = 0
         smoothed_f0 = medfilt(f0, kernel_size=window_size)
         return smoothed_f0
