@@ -35,13 +35,20 @@ from rvc.lib.algorithm.synthesizers import Synthesizer
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
 from rvc.train.utils.data_utils import DistributedBucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
-from rvc.train.utils.train_utils import HParams, attempt_load_checkpoint, extract_model, save_checkpoint
+from rvc.train.utils.train_utils import HParams, extract_model, load_checkpoint, save_checkpoint
 from rvc.train.visualization import mel_spectrogram_similarity, plot_spectrogram_to_numpy
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
 
 global_step = 0
+
+LEGACY_CHECKPOINT_FILES = [
+    "G_checkpoint.pth",
+    "D_checkpoint.pth",
+    "G_checkpoint_backup.pth",
+    "D_checkpoint_backup.pth",
+]
 
 
 def generate_config(config_save_path, sample_rate, vocoder):
@@ -127,6 +134,17 @@ class EpochRecorder:
 
 def main():
     hps = get_hparams()
+
+    # Проверка наличия устаревших чекпоинтов
+    legacy_found = [f for f in LEGACY_CHECKPOINT_FILES if os.path.exists(os.path.join(hps.model_dir, f))]
+    if legacy_found and not os.path.exists(os.path.join(hps.model_dir, "checkpoint.pth")):
+        print(
+            f"\n❌ В директории обнаружены чекпоинты устаревшего формата: {', '.join(legacy_found)}.\n"
+            f"   Раздельные чекпоинты генератора и дискриминатора (G_checkpoint / D_checkpoint) больше не поддерживаются.\n"
+            f"   Используется единый формат checkpoint.pth. Для продолжения обучения удалите устаревшие файлы или начните обучение заново.",
+            flush=True,
+        )
+        sys.exit(1)
 
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
@@ -230,8 +248,15 @@ def run(hps, rank, n_gpus, device, device_id):
             net_g = DDP(net_g, device_ids=[device_id])
             net_d = DDP(net_d, device_ids=[device_id])
 
-        # Загрузка чекпоинтов
-        epoch_str = attempt_load_checkpoint(net_g, optim_g, net_d, optim_d, hps.model_dir)
+        # Загрузка чекпоинта
+        checkpoint_path = os.path.join(hps.model_dir, "checkpoint.pth")
+        epoch_str = None
+
+        if os.path.exists(checkpoint_path):
+            try:
+                epoch_str = load_checkpoint(checkpoint_path, net_g, optim_g, net_d, optim_d)
+            except Exception as e:
+                print(f"Ошибка загрузки checkpoint.pth:\n{e}", flush=True)
 
         if epoch_str is not None:
             epoch_str += 1
@@ -281,7 +306,7 @@ def run(hps, rank, n_gpus, device, device_id):
             epoch_str = 1
             global_step = 0
 
-            # Загрузка претрейнов если чекпоинты не найдены
+            # Загрузка претрейнов если чекпоинт не найден
             if hps.pretrain_g not in ("", "None", None):
                 if rank == 0:
                     print(f"Загрузка претрейна генератора: '{hps.pretrain_g}'", flush=True)
