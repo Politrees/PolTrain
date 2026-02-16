@@ -43,13 +43,6 @@ torch.backends.cudnn.benchmark = True
 
 global_step = 0
 
-LEGACY_CHECKPOINT_FILES = [
-    "G_checkpoint.pth",
-    "D_checkpoint.pth",
-    "G_checkpoint_backup.pth",
-    "D_checkpoint_backup.pth",
-]
-
 
 def generate_config(config_save_path, sample_rate, vocoder):
     config_path = os.path.join("rvc", "configs", f"{sample_rate}.json")
@@ -134,17 +127,6 @@ class EpochRecorder:
 
 def main():
     hps = get_hparams()
-
-    # Проверка наличия устаревших чекпоинтов
-    legacy_found = [f for f in LEGACY_CHECKPOINT_FILES if os.path.exists(os.path.join(hps.model_dir, f))]
-    if legacy_found and not os.path.exists(os.path.join(hps.model_dir, "checkpoint.pth")):
-        print(
-            f"\n❌ В директории обнаружены чекпоинты устаревшего формата: {', '.join(legacy_found)}.\n"
-            f"   Раздельные чекпоинты генератора и дискриминатора (G_checkpoint / D_checkpoint) больше не поддерживаются.\n"
-            f"   Используется единый формат checkpoint.pth. Для продолжения обучения удалите устаревшие файлы или начните обучение заново.",
-            flush=True,
-        )
-        sys.exit(1)
 
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
@@ -249,9 +231,8 @@ def run(hps, rank, n_gpus, device, device_id):
             net_d = DDP(net_d, device_ids=[device_id])
 
         # Загрузка чекпоинта
-        checkpoint_path = os.path.join(hps.model_dir, "checkpoint.pth")
         epoch_str = None
-
+        checkpoint_path = os.path.join(hps.model_dir, "checkpoint.pth")
         if os.path.exists(checkpoint_path):
             try:
                 epoch_str = load_checkpoint(checkpoint_path, net_g, optim_g, net_d, optim_d)
