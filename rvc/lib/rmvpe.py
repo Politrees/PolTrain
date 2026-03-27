@@ -594,6 +594,7 @@ class MelSpectrogram(torch.nn.Module):
         keyshift_key = str(keyshift) + "_" + str(audio.device)
         if keyshift_key not in self.hann_window:
             self.hann_window[keyshift_key] = torch.hann_window(win_length_new).to(audio.device)
+
         fft = torch.stft(
             audio,
             n_fft=n_fft_new,
@@ -604,7 +605,7 @@ class MelSpectrogram(torch.nn.Module):
             return_complex=True,
         )
 
-        magnitude = torch.sqrt(fft.real.pow(2) + fft.imag.pow(2))
+        magnitude = fft.abs()
         if keyshift != 0:
             size = self.n_fft // 2 + 1
             resize = magnitude.size(1)
@@ -636,7 +637,7 @@ class RMVPE:
         self.cents_mapping = np.pad(cents_mapping, (4, 4))
 
     def mel2hidden(self, mel, chunk_size=32000):
-        with torch.no_grad():
+        with torch.inference_mode():
             n_frames = mel.shape[-1]
             mel = F.pad(mel, (0, 32 * ((n_frames - 1) // 32 + 1) - n_frames), mode="reflect")
 
@@ -661,14 +662,16 @@ class RMVPE:
 
     def infer_from_audio(self, audio, thred=0.03):
         audio = torch.from_numpy(audio).float().to(self.device).unsqueeze(0)
-        mel = self.mel_extractor(audio, center=True)
-        hidden = self.mel2hidden(mel)
+        with torch.inference_mode():
+            extracted_mel = self.mel_extractor(audio, center=True)
+            del audio
+            hidden = self.mel2hidden(extracted_mel)
+            del extracted_mel
         hidden = hidden.squeeze(0).cpu().numpy()
         if self.hpa:
             hidden = hidden.astype(np.float32)
-        f0 = self.decode(hidden, thred=thred)
-        return f0
-
+        return self.decode(hidden, thred=thred)
+    
     def infer_from_audio_medfilt(self, audio, thred=0.03, f0_min=50, f0_max=1100, window_size=3):
         f0 = self.infer_from_audio(audio, thred)
         f0[(f0 < f0_min) | (f0 > f0_max)] = 0
@@ -676,21 +679,21 @@ class RMVPE:
         return smoothed_f0
 
     def to_local_average_cents(self, salience, thred=0.05):
+        n_frames = salience.shape[0]
         center = np.argmax(salience, axis=1)
-        salience = np.pad(salience, ((0, 0), (4, 4)))
-        center += 4
-        todo_salience = []
-        todo_cents_mapping = []
-        starts = center - 4
-        ends = center + 5
-        for idx in range(salience.shape[0]):
-            todo_salience.append(salience[:, starts[idx] : ends[idx]][idx])
-            todo_cents_mapping.append(self.cents_mapping[starts[idx] : ends[idx]])
-        todo_salience = np.array(todo_salience)
-        todo_cents_mapping = np.array(todo_cents_mapping)
-        product_sum = np.sum(todo_salience * todo_cents_mapping, 1)
-        weight_sum = np.sum(todo_salience, 1)
-        devided = product_sum / weight_sum
-        maxx = np.max(salience, axis=1)
-        devided[maxx <= thred] = 0
-        return devided
+
+        offsets = np.arange(-4, 5)
+        indices = center[:, None] + offsets[None, :]
+        indices = np.clip(indices, 0, salience.shape[1] - 1)
+
+        rows = np.arange(n_frames)[:, None]
+        local_salience = salience[rows, indices]
+        local_cents = self.cents_mapping[indices + 4]
+
+        product_sum = np.sum(local_salience * local_cents, axis=1)
+        weight_sum = np.sum(local_salience, axis=1)
+        result = np.divide(product_sum, weight_sum, out=np.zeros(n_frames), where=weight_sum > 1e-8)
+
+        max_salience = np.max(salience, axis=1)
+        result[max_salience <= thred] = 0
+        return result
