@@ -15,9 +15,9 @@ import argparse
 import datetime
 import json
 import pathlib
+from collections import defaultdict
 from distutils.util import strtobool
 from random import randint
-from time import sleep
 from time import time as ttime
 
 import torch
@@ -44,6 +44,22 @@ torch.backends.cudnn.benchmark = True
 global_step = 0
 
 
+class MetricsAccumulator:
+    """Аккумулятор метрик для вычисления средних значений за эпоху."""
+
+    def __init__(self):
+        self.sums = defaultdict(float)
+        self.count = 0
+
+    def update(self, **kwargs):
+        self.count += 1
+        for k, v in kwargs.items():
+            self.sums[k] += v.item() if hasattr(v, "item") else v
+
+    def average(self):
+        return {k: v / self.count for k, v in self.sums.items()} if self.count else {}
+
+
 def generate_config(config_save_path, sample_rate, vocoder):
     config_path = os.path.join("rvc", "configs", f"{sample_rate}.json")
     if not pathlib.Path(config_save_path).exists():
@@ -63,7 +79,7 @@ def get_hparams():
     parser.add_argument("--batch_size", type=int, choices=range(1, 129), default=8)
     parser.add_argument("--sample_rate", type=int, choices=[32000, 40000, 48000], default=48000)
     parser.add_argument("--vocoder", type=str, choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN"], default="HiFi-GAN")
-    parser.add_argument("--optimizer", type=str, choices=["AdamW", "AdaBelief", "AdaBeliefV2"], default="AdamW")
+    parser.add_argument("--optimizer", type=str, choices=["AdamW", "AdaBelief"], default="AdamW")
     parser.add_argument("--pretrain_g", type=str, default=None)
     parser.add_argument("--pretrain_d", type=str, default=None)
     parser.add_argument("--gpus", type=str, default="0")
@@ -95,7 +111,7 @@ def get_hparams():
     hparams.data.training_files = f"{experiment_dir}/data/filelist.txt"
 
     print(" \n\nПАРАМЕТРЫ ОБУЧЕНИЯ ")
-    print("="*70)
+    print("=" * 70)
     print(f"{'Папка сохранения:':<30} {hparams.model_dir}")
     print(f"{'Имя модели:':<30} {hparams.model_name}")
     print(f"{'Эпох обучения:':<30} {hparams.total_epoch}")
@@ -110,7 +126,7 @@ def get_hparams():
         print(f"{'Pretrain D:':<30} {hparams.pretrain_d}")
     print(f"{'GPU:':<30} {hparams.gpus}")
     print(f"{'Сохранение в ZIP:':<30} {'Да' if hparams.save_to_zip else 'Нет'}")
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
     return hparams
 
 
@@ -132,9 +148,7 @@ def main():
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
 
     device = torch.device(
-        "cuda" if torch.cuda.is_available() else 
-        "mps" if torch.backends.mps.is_available() else 
-        "cpu"
+        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     )
     gpus = [int(item) for item in hps.gpus.split("-")] if device.type == "cuda" else [0]
     n_gpus = len(gpus)
@@ -160,8 +174,6 @@ def run(hps, rank, n_gpus, device, device_id):
     global global_step
 
     try:
-        metrics_ema = {} if rank == 0 else None
-        best_metrics = {"metrics/mel_sim": {"value": -float('inf'), "epoch": 0}} if rank == 0 else None
         writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval")) if rank == 0 else None
         fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
 
@@ -216,12 +228,9 @@ def run(hps, rank, n_gpus, device, device_id):
 
         if hps.optimizer == "AdaBelief":
             from rvc.train.utils.optimizers.AdaBelief import AdaBelief
+
             optim_g = AdaBelief(net_g.parameters(), lr=hps.train.learning_rate, betas=hps.train.betas, eps=1e-8)
             optim_d = AdaBelief(net_d.parameters(), lr=hps.train.learning_rate, betas=hps.train.betas, eps=1e-8)
-        elif hps.optimizer == "AdaBeliefV2":
-            from rvc.train.utils.optimizers.AdaBeliefV2 import AdaBeliefV2, get_inverse_sqrt_scheduler
-            optim_g = AdaBeliefV2(net_g.parameters(), lr=hps.train.learning_rate, betas=(0.9, 0.999), eps=1e-8, amsgrad=True)
-            optim_d = AdaBeliefV2(net_d.parameters(), lr=hps.train.learning_rate, betas=(0.9, 0.999), eps=1e-8, amsgrad=True)
         else:
             optim_g = torch.optim.AdamW(net_g.parameters(), hps.train.learning_rate, betas=hps.train.betas, eps=hps.train.eps)
             optim_d = torch.optim.AdamW(net_d.parameters(), hps.train.learning_rate, betas=hps.train.betas, eps=hps.train.eps)
@@ -242,47 +251,6 @@ def run(hps, rank, n_gpus, device, device_id):
         if epoch_str is not None:
             epoch_str += 1
             global_step = (epoch_str - 1) * len(train_loader)
-
-            # Пересчёт EMA и лучших значений из TensorBoard
-            if rank == 0:
-                try:
-                    from tensorboard.backend.event_processing import event_accumulator
-                    ea = event_accumulator.EventAccumulator(os.path.join(hps.model_dir, "eval"), size_guidance={'scalars': 0})
-                    ea.Reload()
-
-                    if ea.Tags().get('scalars'):
-                        print(f"\nСинхронизация метрик из TensorBoard...", flush=True)
-                        for tag in ea.Tags()['scalars']:
-                            events = ea.Scalars(tag)
-                            if not events:
-                                continue
-
-                            step_values = {e.step: float(e.value) for e in events if e.step < epoch_str}
-                            sorted_steps = sorted(step_values.keys())
-
-                            smoothing, ema_n, ema_d = 0.987, 0.0, 0.0
-                            for step in sorted_steps:
-                                val = step_values[step]
-                                ema_n = ema_n * smoothing + val * (1.0 - smoothing)
-                                ema_d = ema_d * smoothing + (1.0 - smoothing)
-                                current = ema_n / ema_d
-                                if tag == "metrics/mel_sim" and current >= best_metrics["metrics/mel_sim"]["value"]:
-                                    best_metrics["metrics/mel_sim"] = {"value": current, "epoch": step}
-
-                            if sorted_steps:
-                                metrics_ema[tag] = current
-
-                    curr_mel = metrics_ema.get('metrics/mel_sim', 0.0)
-                    best_val = best_metrics['metrics/mel_sim']['value']
-                    best_ep = best_metrics['metrics/mel_sim']['epoch']
-
-                    if best_val == -float('inf'):
-                        best_val, best_ep = 0.0, 0
-
-                    print(f"Last Mel: {curr_mel:.2f}% | Best Mel: {best_val:.2f}% (на эпохе {best_ep})", flush=True)
-
-                except Exception as e:
-                    print(f"Ошибка чтения TensorBoard: {e}", flush=True)
         else:
             epoch_str = 1
             global_step = 0
@@ -312,9 +280,6 @@ def run(hps, rank, n_gpus, device, device_id):
         if hps.optimizer == "AdaBelief":
             scheduler_g = torch.optim.lr_scheduler.CosineAnnealingLR(optim_g, T_max=hps.total_epoch, eta_min=1e-6, last_epoch=epoch_str - 2)
             scheduler_d = torch.optim.lr_scheduler.CosineAnnealingLR(optim_d, T_max=hps.total_epoch, eta_min=1e-6, last_epoch=epoch_str - 2)
-        elif hps.optimizer == "AdaBeliefV2":
-            scheduler_g = get_inverse_sqrt_scheduler(optim_g, warmup_epochs=10, last_epoch=epoch_str - 2)
-            scheduler_d = get_inverse_sqrt_scheduler(optim_d, warmup_epochs=10, last_epoch=epoch_str - 2)
         else:
             scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
             scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
@@ -322,7 +287,10 @@ def run(hps, rank, n_gpus, device, device_id):
         # Проверка: не превышает ли загруженная эпоха целевую
         if epoch_str > hps.total_epoch:
             if rank == 0:
-                print(f"\n⚠️  Загруженный чекпоинт (эпоха {epoch_str - 1}) уже превышает указанное количество эпох ({hps.total_epoch}).", flush=True)
+                print(
+                    f"\n⚠️  Загруженный чекпоинт (эпоха {epoch_str - 1}) уже превышает указанное количество эпох ({hps.total_epoch}).",
+                    flush=True,
+                )
             return
 
         print("\nЗапуск процесса обучения модели...", flush=True)
@@ -339,8 +307,6 @@ def run(hps, rank, n_gpus, device, device_id):
                 fn_mel_loss,
                 device,
                 device_id,
-                metrics_ema,
-                best_metrics,
                 epoch_recorder,
             )
             scheduler_g.step()
@@ -351,7 +317,7 @@ def run(hps, rank, n_gpus, device, device_id):
             dist.destroy_process_group()
 
 
-def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, device, device_id, metrics_ema=None, best_metrics=None, epoch_recorder=None):
+def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, device, device_id, epoch_recorder=None):
     global global_step
 
     net_g, net_d = nets
@@ -361,18 +327,9 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
     net_g.train()
     net_d.train()
 
-    loss_disc = loss_gen = loss_fm = loss_mel = loss_kl = loss_gen_all = 0
-    grad_norm_d = grad_norm_g = 0
+    acc = MetricsAccumulator()
+    last_batch = None
 
-    def smooth(key, value, smoothing=0.987):
-        """Сглаживание метрики с EMA"""
-        if metrics_ema is None:
-            return value
-
-        v = float(value)
-        metrics_ema[key] = v if key not in metrics_ema else metrics_ema[key] * smoothing + v * (1.0 - smoothing)
-        return metrics_ema[key]
-    
     for _, info in enumerate(train_loader):
         if device.type == "cuda":
             info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
@@ -406,9 +363,28 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             grad_norm_g = grad_norm(net_g.parameters())
             optim_g.step()
 
+        # Аккумуляция метрик
+        acc.update(**{
+            "loss/avg/d": loss_disc,
+            "loss/avg/g": loss_gen,
+            "loss/g/fm": loss_fm,
+            "loss/g/mel": loss_mel,
+            "loss/g/kl": loss_kl,
+            "loss/g/total": loss_gen_all,
+            "grad/norm_d": grad_norm_d,
+            "grad/norm_g": grad_norm_g,
+        })
+
+        # Сохраняем данные последнего батча для визуализации
+        if rank == 0:
+            last_batch = (spec, ids_slice, y_hat)
+
         global_step += 1
 
     if rank == 0 and epoch % hps.train.log_interval == 0:
+        avg = acc.average()
+
+        spec, ids_slice, y_hat = last_batch
         mel = spec_to_mel_torch(
             spec,
             hps.data.filter_length,
@@ -431,17 +407,10 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
         mel_similarity = mel_spectrogram_similarity(y_hat_mel, y_mel)
 
         scalar_dict = {
-            "grad/norm_d": grad_norm_d,
-            "grad/norm_g": grad_norm_g,
-            "loss/avg/d": loss_disc,
-            "loss/avg/g": loss_gen,
-            "loss/g/fm": loss_fm,
-            "loss/g/mel": loss_mel,
-            "loss/g/kl": loss_kl,
-            "loss/g/total": loss_gen_all,
+            **avg,
             "metrics/mel_sim": mel_similarity,
-            "Learning Rate/G": optim_g.param_groups[0]['lr'],
-            "Learning Rate/D": optim_d.param_groups[0]['lr'],
+            "Learning Rate/G": optim_g.param_groups[0]["lr"],
+            "Learning Rate/D": optim_d.param_groups[0]["lr"],
         }
         image_dict = {
             "mel/slice/real": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
@@ -452,26 +421,11 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
         for k, v in image_dict.items():
             writer_eval.add_image(k, v, epoch, dataformats="HWC")
 
-        # Применяем сглаживание
-        smoothed_dict = {k: smooth(k, v) for k, v in scalar_dict.items()}
-
-        # Обновление лучших значений (сглаженных)
-        if best_metrics is not None:
-            current_mel = smoothed_dict.get("metrics/mel_sim", 0.0)
-            if current_mel >= best_metrics["metrics/mel_sim"]["value"]:
-                best_metrics["metrics/mel_sim"] = {"value": current_mel, "epoch": epoch}
-
     # Вывод в консоль
     if rank == 0:
-        mel_sim_display = metrics_ema.get("metrics/mel_sim", 0.0) if metrics_ema else 0.0
-        
-        best_val = best_metrics['metrics/mel_sim']['value']
-        best_ep = best_metrics['metrics/mel_sim']['epoch']
-
         print(
             f"{epoch_recorder.record()}: {hps.model_name} ▸ "
-            f"Эпоха {epoch}/{hps.total_epoch} (Шаг {global_step}) ││ "
-            f"Mel: {mel_sim_display:.2f}% ▸ Рекорд: {best_val:.2f}% (Эпоха {best_ep})",
+            f"Эпоха {epoch}/{hps.total_epoch} (Шаг {global_step}) ││ ",
             flush=True,
         )
 
