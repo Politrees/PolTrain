@@ -425,7 +425,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
     if rank == 0:
         print(
             f"{epoch_recorder.record()}: {hps.model_name} ▸ "
-            f"Эпоха {epoch}/{hps.total_epoch} (Шаг {global_step}) ││ ",
+            f"Эпоха {epoch}/{hps.total_epoch} (Шаг {global_step})",
             flush=True,
         )
 
