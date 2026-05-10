@@ -5,7 +5,6 @@ import warnings
 
 # Настройка окружения
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["USE_LIBUV"] = "0" if sys.platform == "win32" else "1"
 
 # Настройка логирования и подавление предупреждений
 logging.basicConfig(level=logging.WARNING)
@@ -15,6 +14,8 @@ import argparse
 import datetime
 import json
 import pathlib
+import glob
+import re
 from collections import defaultdict
 from distutils.util import strtobool
 from random import randint
@@ -23,6 +24,7 @@ from time import time as ttime
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+from torch.cuda.amp import autocast, GradScaler
 from torch.nn import functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
@@ -35,7 +37,7 @@ from rvc.lib.algorithm.synthesizers import Synthesizer
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
 from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
 from rvc.train.utils.data_utils import DistributedBucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
-from rvc.train.utils.train_utils import HParams, extract_model, load_checkpoint, save_checkpoint
+from rvc.train.utils.train_utils import HParams, load_checkpoint, save_checkpoint
 from rvc.train.visualization import mel_spectrogram_similarity, plot_spectrogram_to_numpy
 
 torch.backends.cudnn.deterministic = False
@@ -60,13 +62,13 @@ class MetricsAccumulator:
         return {k: v / self.count for k, v in self.sums.items()} if self.count else {}
 
 
-def generate_config(config_save_path, sample_rate, vocoder):
-    config_path = os.path.join("rvc", "configs", f"{sample_rate}.json")
+def generate_config(config_save_path, optimizer):
+    config_path = os.path.join("rvc", "configs", f"48000.json")
     if not pathlib.Path(config_save_path).exists():
         with open(config_save_path, "w", encoding="utf-8") as f:
             with open(config_path, "r", encoding="utf-8") as config_file:
                 config_data = json.load(config_file)
-                config_data["model"]["vocoder"] = vocoder
+                config_data["model"]["optimizer"] = optimizer
                 json.dump(config_data, f, ensure_ascii=False, indent=2)
 
 
@@ -77,14 +79,11 @@ def get_hparams():
     parser.add_argument("--total_epoch", type=int, choices=range(1, 10001), default=300)
     parser.add_argument("--save_every_epoch", type=int, choices=range(1, 101), default=25)
     parser.add_argument("--batch_size", type=int, choices=range(1, 129), default=8)
-    parser.add_argument("--sample_rate", type=int, choices=[32000, 40000, 48000], default=48000)
-    parser.add_argument("--vocoder", type=str, choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN"], default="HiFi-GAN")
     parser.add_argument("--optimizer", type=str, choices=["AdamW", "AdaBelief"], default="AdamW")
     parser.add_argument("--pretrain_g", type=str, default=None)
     parser.add_argument("--pretrain_d", type=str, default=None)
     parser.add_argument("--gpus", type=str, default="0")
-    parser.add_argument("--save_to_zip", type=lambda x: bool(strtobool(x)), choices=[True, False], default=False)
-    parser.add_argument("--save_half", type=lambda x: bool(strtobool(x)), choices=[True, False], default=True)
+    parser.add_argument("--half_precision", type=lambda x: bool(strtobool(x)), choices=[True, False], default=True)
     args = parser.parse_args()
 
     experiment_dir = os.path.join(args.experiment_dir, args.model_name)
@@ -92,7 +91,7 @@ def get_hparams():
 
     # Генерация файла конфигурации
     if not os.path.exists(config_save_path):
-        generate_config(config_save_path, args.sample_rate, args.vocoder)
+        generate_config(config_save_path, args.optimizer)
 
     # Загрузка файла конфигурации
     with open(config_save_path, "r", encoding="utf-8") as f:
@@ -104,15 +103,13 @@ def get_hparams():
     hparams.total_epoch = args.total_epoch
     hparams.save_every_epoch = args.save_every_epoch
     hparams.batch_size = args.batch_size
-    hparams.optimizer = args.optimizer
     hparams.pretrain_g = args.pretrain_g
     hparams.pretrain_d = args.pretrain_d
     hparams.gpus = args.gpus
-    hparams.save_to_zip = args.save_to_zip
-    hparams.save_half = args.save_half
+    hparams.half_precision = args.half_precision
     hparams.data.training_files = f"{experiment_dir}/data/filelist.txt"
 
-    print(" \n\nПАРАМЕТРЫ ОБУЧЕНИЯ ")
+    print("\n\nПАРАМЕТРЫ ОБУЧЕНИЯ ")
     print("=" * 70)
     print(f"{'Папка сохранения:':<30} {hparams.model_dir}")
     print(f"{'Имя модели:':<30} {hparams.model_name}")
@@ -121,13 +118,13 @@ def get_hparams():
     print(f"{'Размер батча:':<30} {hparams.batch_size}")
     print(f"{'Частота дискретизации:':<30} {hparams.data.sample_rate} Hz")
     print(f"{'Вокодер:':<30} {hparams.model.vocoder}")
-    print(f"{'Оптимизатор:':<30} {hparams.optimizer}")
+    print(f"{'Оптимизатор:':<30} {hparams.model.optimizer}")
     if args.pretrain_g:
         print(f"{'Pretrain G:':<30} {hparams.pretrain_g}")
     if args.pretrain_d:
         print(f"{'Pretrain D:':<30} {hparams.pretrain_d}")
-    print(f"{'Сохранение в ZIP:':<30} {'Да' if hparams.save_to_zip else 'Нет'}")
-    print(f"{'Точность моделей:':<30} {'float16' if hparams.save_half else 'float32'}")
+    print(f"{'Точность обучения:':<30} {'float16 (AMP)' if hparams.half_precision else 'float32'}")
+    print(f"{'Сохранение моделей:':<30} {'float16' if hparams.half_precision else 'float32'}")
     print("=" * 70 + "\n")
     return hparams
 
@@ -149,19 +146,18 @@ def main():
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
 
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-    )
-    gpus = [int(item) for item in hps.gpus.split("-")] if device.type == "cuda" else [0]
+    if not torch.cuda.is_available():
+        print("CUDA недоступна! Обучение требует GPU с поддержкой CUDA.", flush=True)
+        sys.exit(1)
+
+    gpus = [int(item) for item in hps.gpus.split("-")]
     n_gpus = len(gpus)
-    if device.type == "cpu":
-        print("Обучение с использованием процессора займёт много времени.", flush=True)
 
     children = []
     for rank, device_id in enumerate(gpus):
         subproc = mp.Process(
             target=run,
-            args=(hps, rank, n_gpus, device, device_id),
+            args=(hps, rank, n_gpus, device_id),
         )
         children.append(subproc)
         subproc.start()
@@ -172,23 +168,21 @@ def main():
     sys.exit(0)
 
 
-def run(hps, rank, n_gpus, device, device_id):
+def run(hps, rank, n_gpus, device_id):
     global global_step
 
     try:
         writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval")) if rank == 0 else None
         fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=hps.data.sample_rate)
 
-        dist.init_process_group(
-            backend="gloo" if sys.platform == "win32" or device.type != "cuda" else "nccl",
-            init_method="env://",
-            world_size=n_gpus if device.type == "cuda" else 1,
-            rank=rank if device.type == "cuda" else 0,
-        )
+        dist.init_process_group(backend="nccl", init_method="env://", world_size=n_gpus, rank=rank)
 
         torch.manual_seed(hps.train.seed)
-        if torch.cuda.is_available():
-            torch.cuda.set_device(device_id)
+        torch.cuda.set_device(device_id)
+
+        # Определяем dtype на основе half_precision
+        use_amp = hps.half_precision
+        dtype = torch.float16 if use_amp else torch.float32
 
         collate_fn = TextAudioCollateMultiNSFsid()
         train_dataset = TextAudioLoaderMultiNSFsid(hps.data)
@@ -221,14 +215,10 @@ def run(hps, rank, n_gpus, device, device_id):
         )
         net_d = MultiPeriodDiscriminator(checkpointing=False)
 
-        if device.type == "cuda":
-            net_g = net_g.cuda(device_id)
-            net_d = net_d.cuda(device_id)
-        else:
-            net_g = net_g.to(device)
-            net_d = net_d.to(device)
+        net_g = net_g.cuda(device_id)
+        net_d = net_d.cuda(device_id)
 
-        if hps.optimizer == "AdaBelief":
+        if hps.model.optimizer == "AdaBelief":
             from rvc.train.utils.optimizers.AdaBelief import AdaBelief
 
             optim_g = AdaBelief(net_g.parameters(), lr=hps.train.learning_rate, betas=hps.train.betas, eps=1e-8)
@@ -237,18 +227,35 @@ def run(hps, rank, n_gpus, device, device_id):
             optim_g = torch.optim.AdamW(net_g.parameters(), hps.train.learning_rate, betas=hps.train.betas, eps=hps.train.eps)
             optim_d = torch.optim.AdamW(net_d.parameters(), hps.train.learning_rate, betas=hps.train.betas, eps=hps.train.eps)
 
-        if n_gpus > 1 and device.type == "cuda":
+        if n_gpus > 1:
             net_g = DDP(net_g, device_ids=[device_id])
             net_d = DDP(net_d, device_ids=[device_id])
 
+        # Инициализация GradScaler для AMP
+        scaler_g = GradScaler(enabled=use_amp)
+        scaler_d = GradScaler(enabled=use_amp)
+
         # Загрузка чекпоинта
         epoch_str = None
-        checkpoint_path = os.path.join(hps.model_dir, "checkpoint.pth")
-        if os.path.exists(checkpoint_path):
-            try:
-                epoch_str = load_checkpoint(checkpoint_path, net_g, optim_g, net_d, optim_d)
-            except Exception as e:
-                print(f"Ошибка загрузки checkpoint.pth:\n{e}", flush=True)
+        checkpoint_files = glob.glob(os.path.join(hps.model_dir, "checkpoint_e*.pth"))
+        if checkpoint_files:
+            def extract_epoch(filepath):
+                filename = os.path.basename(filepath)
+                match = re.search(r"checkpoint_e(\d+)\.pth", filename)
+                return int(match.group(1)) if match else -1
+
+            checkpoint_files.sort(key=extract_epoch, reverse=True)
+            for ckpt_path in checkpoint_files:
+                if rank == 0:
+                    print(f"Попытка загрузки чекпоинта: '{os.path.basename(ckpt_path)}'...", flush=True)
+                try:
+                    epoch_str = load_checkpoint(ckpt_path, net_g, optim_g, net_d, optim_d)
+                    break
+                except Exception as e:
+                    if rank == 0:
+                        print(f"⚠️ Ошибка при загрузке '{os.path.basename(ckpt_path)}':\n{e}")
+                        print("Переход к предыдущему чекпоинту...\n", flush=True)
+                    epoch_str = None
 
         if epoch_str is not None:
             epoch_str += 1
@@ -279,7 +286,7 @@ def run(hps, rank, n_gpus, device, device_id):
                     d_model.load_state_dict(torch.load(hps.pretrain_d, map_location="cpu", weights_only=False)["model"])
 
         # Настройка scheduler
-        if hps.optimizer == "AdaBelief":
+        if hps.model.optimizer == "AdaBelief":
             scheduler_g = torch.optim.lr_scheduler.CosineAnnealingLR(optim_g, T_max=hps.total_epoch, eta_min=1e-6, last_epoch=epoch_str - 2)
             scheduler_d = torch.optim.lr_scheduler.CosineAnnealingLR(optim_d, T_max=hps.total_epoch, eta_min=1e-6, last_epoch=epoch_str - 2)
         else:
@@ -304,12 +311,13 @@ def run(hps, rank, n_gpus, device, device_id):
                 epoch,
                 [net_g, net_d],
                 [optim_g, optim_d],
+                [scaler_g, scaler_d],
                 train_loader,
                 writer_eval,
                 fn_mel_loss,
-                device,
                 device_id,
                 epoch_recorder,
+                use_amp,
             )
             scheduler_g.step()
             scheduler_d.step()
@@ -319,11 +327,12 @@ def run(hps, rank, n_gpus, device, device_id):
             dist.destroy_process_group()
 
 
-def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval, fn_mel_loss, device, device_id, epoch_recorder=None):
+def train_and_evaluate(hps, rank, epoch, nets, optims, scalers, train_loader, writer_eval, fn_mel_loss, device_id, epoch_recorder=None, use_amp=False):
     global global_step
 
     net_g, net_d = nets
     optim_g, optim_d = optims
+    scaler_g, scaler_d = scalers
     train_loader.batch_sampler.set_epoch(epoch)
 
     net_g.train()
@@ -332,38 +341,44 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
     acc = MetricsAccumulator()
     last_batch = None
 
-    for _, info in enumerate(train_loader):
-        if device.type == "cuda":
-            info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
-        else:
-            info = [tensor.to(device) for tensor in info]
+    for batch_idx, info in enumerate(train_loader):
+        info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
+        phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, wave_lengths, sid = info
 
-        phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, _, sid = info
-        model_output = net_g(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
-        y_hat, ids_slice, _, z_mask, (_, z_p, m_p, logs_p, _, logs_q) = model_output
-        wave = slice_segments(wave, ids_slice * hps.data.hop_length, hps.train.segment_size, dim=3)
+        with autocast(enabled=use_amp):
+            model_output = net_g(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
+            y_hat, ids_slice, z_mask, (z_p, m_p, logs_p, m_q, logs_q) = model_output
+            wave = slice_segments(wave, ids_slice * hps.data.hop_length, hps.train.segment_size, dim=3)
 
         # Discriminator loss
         for _ in range(1):
-            y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
-            loss_disc = discriminator_loss(y_d_hat_r, y_d_hat_g)
-            optim_d.zero_grad()
-            loss_disc.backward()
+            with autocast(enabled=use_amp):
+                y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
+                loss_disc = discriminator_loss(y_d_hat_r, y_d_hat_g)
+
+            scaler_d.scale(loss_disc).backward()
+            scaler_d.unscale_(optim_d)
             grad_norm_d = grad_norm(net_d.parameters())
-            optim_d.step()
+            scaler_d.step(optim_d)
+            scaler_d.update()
+            optim_d.zero_grad()
 
         # Generator loss
         for _ in range(1):
-            _, y_d_hat_g, fmap_r, fmap_g = net_d(wave, y_hat)
-            loss_mel = fn_mel_loss(wave, y_hat) * hps.train.c_mel / 3.0
-            loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
-            loss_fm = feature_loss(fmap_r, fmap_g)
-            loss_gen = generator_loss(y_d_hat_g)
-            loss_gen_all = loss_gen + loss_fm + loss_mel + loss_kl
-            optim_g.zero_grad()
-            loss_gen_all.backward()
+            with autocast(enabled=use_amp):
+                y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(wave, y_hat)
+                loss_mel = fn_mel_loss(wave, y_hat) * hps.train.c_mel / 3.0
+                loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
+                loss_fm = feature_loss(fmap_r, fmap_g)
+                loss_gen = generator_loss(y_d_hat_g)
+                loss_gen_all = loss_gen + loss_fm + loss_mel + loss_kl
+
+            scaler_g.scale(loss_gen_all).backward()
+            scaler_g.unscale_(optim_g)
             grad_norm_g = grad_norm(net_g.parameters())
-            optim_g.step()
+            scaler_g.step(optim_g)
+            scaler_g.update()
+            optim_g.zero_grad()
 
         # Аккумуляция метрик
         acc.update(**{
@@ -433,44 +448,13 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
 
     # Сохранение моделей
     if rank == 0:
-        is_final_epoch = epoch >= hps.total_epoch
-        should_save_checkpoint = (epoch % hps.save_every_epoch == 0) or is_final_epoch
-
-        if should_save_checkpoint:
-            # Сохранение чекпоинта
-            checkpoint_path = os.path.join(hps.model_dir, "checkpoint.pth")
+        if epoch % hps.save_every_epoch == 0:
+            checkpoint_path = os.path.join(hps.model_dir, f"checkpoint_e{epoch}.pth")
             save_checkpoint(net_g, optim_g, net_d, optim_d, epoch, checkpoint_path)
 
-            # Сохранение промежуточной модели
-            weights_dir = os.path.join(hps.model_dir, "weights")
-            os.makedirs(weights_dir, exist_ok=True)
-
-            checkpoint_state = net_g.module.state_dict() if hasattr(net_g, "module") else net_g.state_dict()
-            intermediate_path = os.path.join(weights_dir, f"{hps.model_name}_e{epoch}_s{global_step}.pth")
-            print(extract_model(hps, checkpoint_state, epoch, global_step, intermediate_path, hps.save_half), flush=True)
-
-            # Финальная эпоха
-            if is_final_epoch:
-                # Сохранение last модели
-                last_path = os.path.join(hps.model_dir, f"{hps.model_name}_e{epoch}_s{global_step}_last.pth")
-                print(extract_model(hps, checkpoint_state, epoch, global_step, last_path, hps.save_half), flush=True)
-
-                # Архивирование
-                if hps.save_to_zip:
-                    import zipfile
-
-                    zip_filename = os.path.join(hps.model_dir, f"{hps.model_name}.zip")
-                    with zipfile.ZipFile(zip_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
-                        # Добавляем last модель
-                        if os.path.exists(last_path):
-                            zipf.write(last_path, os.path.basename(last_path))
-                        # Добавляем index
-                        index_path = os.path.join(hps.model_dir, f"{hps.model_name}.index")
-                        if os.path.exists(index_path):
-                            zipf.write(index_path, os.path.basename(index_path))
-                    print(f"Файлы модели заархивированы в '{zip_filename}'", flush=True)
-
-                print("\nОбучение успешно завершено!", flush=True)
+        # Финальная эпоха
+        if epoch >= hps.total_epoch:
+            print("\nОбучение успешно завершено!", flush=True)
 
 
 if __name__ == "__main__":

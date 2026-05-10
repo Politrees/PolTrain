@@ -2,6 +2,7 @@ from typing import Optional
 
 import torch
 
+from rvc.lib.algorithm.generators.refinegan import RefineGANGenerator
 from rvc.lib.algorithm.commons import rand_slice_segments, slice_segments
 from rvc.lib.algorithm.encoders import PosteriorEncoder, TextEncoder
 from rvc.lib.algorithm.residuals import ResidualCouplingBlock
@@ -55,7 +56,6 @@ class Synthesizer(torch.nn.Module):
         gin_channels: int,
         sr: int,
         text_enc_hidden_dim: int = 768,
-        vocoder: str = "HiFi-GAN",
         randomized: bool = True,
         checkpointing: bool = False,
         **kwargs,
@@ -74,45 +74,14 @@ class Synthesizer(torch.nn.Module):
             p_dropout,
             text_enc_hidden_dim,
         )
-
-        if vocoder == "MRF HiFi-GAN":
-            from rvc.lib.algorithm.generators.hifigan_mrf import HiFiGANMRFGenerator
-            self.dec = HiFiGANMRFGenerator(
-                in_channel=inter_channels,
-                upsample_initial_channel=upsample_initial_channel,
-                upsample_rates=upsample_rates,
-                upsample_kernel_sizes=upsample_kernel_sizes,
-                resblock_kernel_sizes=resblock_kernel_sizes,
-                resblock_dilations=resblock_dilation_sizes,
-                gin_channels=gin_channels,
-                sample_rate=sr,
-                harmonic_num=8,
-                checkpointing=checkpointing,
-            )
-        elif vocoder == "RefineGAN":
-            from rvc.lib.algorithm.generators.refinegan import RefineGANGenerator
-            self.dec = RefineGANGenerator(
-                sample_rate=sr,
-                downsample_rates=upsample_rates[::-1],
-                upsample_rates=upsample_rates,
-                start_channels=16,
-                num_mels=inter_channels,
-                checkpointing=checkpointing,
-            )
-        else:
-            from rvc.lib.algorithm.generators.hifigan_nsf import HiFiGANNSFGenerator
-            self.dec = HiFiGANNSFGenerator(
-                inter_channels,
-                resblock_kernel_sizes,
-                resblock_dilation_sizes,
-                upsample_rates,
-                upsample_initial_channel,
-                upsample_kernel_sizes,
-                gin_channels=gin_channels,
-                sr=sr,
-                checkpointing=checkpointing,
-            )
-
+        self.dec = RefineGANGenerator(
+            sample_rate=sr,
+            downsample_rates=upsample_rates[::-1],
+            upsample_rates=upsample_rates,
+            start_channels=16,
+            num_mels=inter_channels,
+            checkpointing=checkpointing,
+        )
         self.enc_q = PosteriorEncoder(
             spec_channels,
             inter_channels,
