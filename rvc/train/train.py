@@ -343,11 +343,11 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, scalers, train_loader, wr
 
     for batch_idx, info in enumerate(train_loader):
         info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
-        phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, wave_lengths, sid = info
+        phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, _, sid = info
 
         with autocast(enabled=use_amp):
             model_output = net_g(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
-            y_hat, ids_slice, z_mask, (z_p, m_p, logs_p, m_q, logs_q) = model_output
+            y_hat, ids_slice, _, z_mask, (_, z_p, m_p, logs_p, _, logs_q) = model_output
             wave = slice_segments(wave, ids_slice * hps.data.hop_length, hps.train.segment_size, dim=3)
 
         # Discriminator loss
