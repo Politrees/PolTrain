@@ -14,3 +14,13 @@ def load_audio(file, sample_rate):
         raise RuntimeError(f"Возникла ошибка при загрузке аудио: {error}")
 
     return audio.flatten()
+
+
+def load_audio_16k(file):
+    # this is used by f0 and feature extractions that load preprocessed 16k files, so there's no need to resample
+    try:
+        audio, sr = librosa.load(file, sr=16000)
+    except Exception as error:
+        raise RuntimeError(f"An error occurred loading the audio: {error}")
+
+    return audio.flatten()

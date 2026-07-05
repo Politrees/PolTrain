@@ -77,6 +77,7 @@ class Synthesizer(torch.nn.Module):
 
         if vocoder == "MRF HiFi-GAN":
             from rvc.lib.algorithm.generators.hifigan_mrf import HiFiGANMRFGenerator
+
             self.dec = HiFiGANMRFGenerator(
                 in_channel=inter_channels,
                 upsample_initial_channel=upsample_initial_channel,
@@ -91,6 +92,7 @@ class Synthesizer(torch.nn.Module):
             )
         elif vocoder == "RefineGAN":
             from rvc.lib.algorithm.generators.refinegan import RefineGANGenerator
+
             self.dec = RefineGANGenerator(
                 sample_rate=sr,
                 downsample_rates=upsample_rates[::-1],
@@ -101,6 +103,7 @@ class Synthesizer(torch.nn.Module):
             )
         else:
             from rvc.lib.algorithm.generators.hifigan_nsf import HiFiGANNSFGenerator
+
             self.dec = HiFiGANNSFGenerator(
                 inter_channels,
                 resblock_kernel_sizes,
@@ -168,11 +171,9 @@ class Synthesizer(torch.nn.Module):
                 o = self.dec(z_slice, pitchf, g=g)
                 return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
             # future use for finetuning using the entire dataset each pass
-            else:
-                o = self.dec(z, pitchf, g=g)
-                return o, None, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
-        else:
-            return None, None, x_mask, None, (None, None, m_p, logs_p, None, None)
+            o = self.dec(z, pitchf, g=g)
+            return o, None, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
+        return None, None, x_mask, None, (None, None, m_p, logs_p, None, None)
 
     @torch.jit.export
     def infer(
