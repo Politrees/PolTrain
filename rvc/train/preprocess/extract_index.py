@@ -5,12 +5,13 @@ from multiprocessing import cpu_count
 import faiss
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans
+from tqdm import tqdm
 
 exp_dir = str(sys.argv[1])
 index_algorithm = str(sys.argv[2])
 
 try:
-    print(f"\nЗапуск процесса генерации индекса...")
+    print(f"\n[3/3] - Запуск процесса генерации индекса...")
     feature_dir = os.path.join(exp_dir, "data", "features")
     model_name = os.path.basename(exp_dir)
 
@@ -23,7 +24,7 @@ try:
         npys = []
         listdir_res = sorted(os.listdir(feature_dir))
 
-        for name in listdir_res:
+        for name in tqdm(listdir_res, desc="Загрузка признаков HuBERT"):
             file_path = os.path.join(feature_dir, name)
             phone = np.load(file_path)
             npys.append(phone)
@@ -55,11 +56,11 @@ try:
         index_added.train(big_npy)
 
         batch_size_add = 8192
-        for i in range(0, big_npy.shape[0], batch_size_add):
+        for i in tqdm(range(0, big_npy.shape[0], batch_size_add), desc="Добавление векторов в индекс"):
             index_added.add(big_npy[i : i + batch_size_add])
 
         faiss.write_index(index_added, index_filepath)
-        print(f"Индекс успешно сохранен - '{index_filepath}'")
+        print(f"✓ Индекс успешно сохранен - '{index_filepath}'")
 
 except Exception as error:
     print(f"Произошла ошибка при извлечении индекса: {error}")

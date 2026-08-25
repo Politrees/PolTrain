@@ -120,7 +120,6 @@ class PreProcess:
             self.pipeline(path, idx0)
 
     def pipeline_mp_inp_dir(self, input_root, num_processes):
-        print("Инициализация процесса сегментации аудиоданных...")
         try:
             # Собираем только аудиофайлы; всё остальное в папке датасета игнорируем
             names = sorted(
@@ -133,7 +132,8 @@ class PreProcess:
                     f"В папке '{input_root}' не найдено ни одного аудиофайла "
                     f"(поддерживаются: {', '.join(sorted(AUDIO_EXTENSIONS))})."
                 )
-            print(f"Найдено аудиофайлов: {len(names)}")
+
+            print(f"[1/3] - Запуск процесса сегментации аудиоданных...\tНайдено файлов: {len(names)}")
 
             infos = [(os.path.join(input_root, name), idx) for idx, name in enumerate(names)]
 

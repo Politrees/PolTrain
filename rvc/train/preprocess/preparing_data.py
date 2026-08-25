@@ -121,7 +121,7 @@ class DataPreprocessor:
         if not files:
             self._raise_no_files_error()
 
-        print(f"\nОбнаружено сегментов для извлечения признаков: {len(files)}")
+        print(f"\n[2/3] - Запуск процесса извлечения признаков...\t\tНайдено файлов: {len(files)}")
 
         # Обработка файлов
         for file in tqdm(files, desc="Извлечение F0 (фундаментальной частоты)"):
