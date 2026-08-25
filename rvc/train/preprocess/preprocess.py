@@ -1,12 +1,13 @@
-import multiprocessing
 import os
 import sys
+import time
 import traceback
 
 import librosa
 import numpy as np
 from scipy import signal
 from scipy.io import wavfile
+from tqdm import tqdm
 
 sys.path.append(os.getcwd())
 
@@ -19,7 +20,6 @@ input_root = sys.argv[2]  # Директория с входными аудио�
 percentage = float(sys.argv[3])  # Максимальная длина сегмента в секундах / По умолчанию = 3.0 (от n до 3сек)
 sample_rate = int(sys.argv[4])  # Частота дискретизации в которую преобразуются данные / 32000, 40000 и 48000
 normalize = sys.argv[5] == "True"  # Флаг для включения/выключения нормализации
-num_processes = max(1, os.cpu_count() - 1)  # Количество процессов
 
 # Поддерживаемые аудио-расширения
 AUDIO_EXTENSIONS = {
@@ -42,6 +42,16 @@ AUDIO_EXTENSIONS = {
 
 def is_audio_file(path):
     return os.path.isfile(path) and os.path.splitext(path)[1].lower() in AUDIO_EXTENSIONS
+
+
+class Postfix:
+    # tqdm сам подставляет ", " перед постфиксом — этот класс обходит это,
+    # чтобы строка выглядела как "4/4 [сегментов: 922]", а не "4/4, сегментов: 922"
+    def __init__(self, text):
+        self.text = text
+
+    def __str__(self):
+        return self.text
 
 
 class PreProcess:
@@ -74,7 +84,7 @@ class PreProcess:
         # Проверка на превышение максимального уровня сигнала
         tmp_max = np.abs(tmp_audio).max()
         if tmp_max > 2.5:
-            return
+            return 0  # Сегмент слишком громкий — пропускаем
 
         # Применение нормализации к аудио и сохранение в WAV
         if self.normalize:
@@ -84,42 +94,9 @@ class PreProcess:
         # Ресемплирование аудио до 16 кГц и сохранение в WAV
         tmp_audio_16k = librosa.resample(tmp_audio, orig_sr=self.sample_rate, target_sr=16000, res_type="soxr_vhq")
         wavfile.write(f"{self.wavs16k_dir}/{idx0}_{idx1}.wav", 16000, tmp_audio_16k.astype(np.float32))
+        return 1  # Сегмент записан
 
-    def pipeline(self, path, idx0):
-        try:
-            # Загрузка аудио
-            audio = load_audio(path, self.sample_rate)
-            # Применение фильтра высоких частот
-            audio = signal.lfilter(self.b_high, self.a_high, audio)
-
-            idx1 = 0
-            # Нарезка аудио на сегменты
-            for audio in self.slicer.slice(audio):
-                i = 0
-                while True:
-                    # Вычисление начальной точки сегмента
-                    start = int(self.sample_rate * (self.percentage - self.overlap) * i)
-                    i += 1
-                    # Проверка, остался ли хвост аудио
-                    if len(audio[start:]) > self.tail * self.sample_rate:
-                        tmp_audio = audio[start : start + int(self.percentage * self.sample_rate)]
-                        self.norm_write(tmp_audio, idx0, idx1)
-                        idx1 += 1
-                    else:
-                        tmp_audio = audio[start:]
-                        self.norm_write(tmp_audio, idx0, idx1)
-                        idx1 += 1
-                        break
-            print(f"{path}\t-> Готово")
-        except Exception:
-            raise RuntimeError(f"{path}\t-> {traceback.format_exc()}")
-
-    def pipeline_mp(self, infos):
-        # Обработка списка файлов
-        for path, idx0 in infos:
-            self.pipeline(path, idx0)
-
-    def pipeline_mp_inp_dir(self, input_root, num_processes):
+    def pipeline_inp_dir(self, input_root):
         try:
             # Собираем только аудиофайлы; всё остальное в папке датасета игнорируем
             names = sorted(
@@ -133,29 +110,68 @@ class PreProcess:
                     f"(поддерживаются: {', '.join(sorted(AUDIO_EXTENSIONS))})."
                 )
 
-            print(f"[1/3] - Запуск процесса сегментации аудиоданных...\tНайдено файлов: {len(names)}")
+            print(f"[1/3] - Запуск процесса сегментации аудиоданных...")
 
-            infos = [(os.path.join(input_root, name), idx) for idx, name in enumerate(names)]
+            total_segments = 0
+            # Прогресс по файлам; счетчик сегментов тикает в постфиксе в реальном времени.
+            # ncols фиксируем, чтобы при сломанном определении ширины терминала tqdm не игнорировал bar_format
+            with tqdm(
+                total=len(names),
+                desc="Сегментация аудиоданных",
+                bar_format="{desc}: {n}/{total}{postfix}",
+                ncols=80,
+            ) as pbar:
+                last_paint = 0.0
+                for idx, name in enumerate(names):
+                    path = os.path.join(input_root, name)
+                    try:
+                        # Загрузка аудио
+                        audio = load_audio(path, self.sample_rate)
+                        # Применение фильтра высоких частот
+                        audio = signal.lfilter(self.b_high, self.a_high, audio)
 
-            # Параллельная обработка
-            ps = []
-            for i in range(num_processes):
-                p = multiprocessing.Process(target=self.pipeline_mp, args=(infos[i::num_processes],))
-                ps.append(p)
-                p.start()
-            for p in ps:
-                p.join()
+                        idx1 = 0
+                        # Нарезка аудио на сегменты
+                        for audio in self.slicer.slice(audio):
+                            i = 0
+                            while True:
+                                # Вычисление начальной точки сегмента
+                                start = int(self.sample_rate * (self.percentage - self.overlap) * i)
+                                i += 1
+                                # Проверка, остался ли хвост аудио
+                                if len(audio[start:]) > self.tail * self.sample_rate:
+                                    tmp_audio = audio[start : start + int(self.percentage * self.sample_rate)]
+                                    total_segments += self.norm_write(tmp_audio, idx, idx1)
+                                    idx1 += 1
+                                    # Перерисовываем счетчик не чаще ~10 раз в секунду:
+                                    # чаще — терминал не успевает и число в конце файла прыгает
+                                    if time.monotonic() - last_paint >= 0.1:
+                                        last_paint = time.monotonic()
+                                        pbar.postfix = Postfix(f" [сегментов: {total_segments}]")
+                                        pbar.refresh()
+                                else:
+                                    tmp_audio = audio[start:]
+                                    if len(tmp_audio) > 0:  # Пустой хвост не записываем
+                                        total_segments += self.norm_write(tmp_audio, idx, idx1)
+                                        idx1 += 1
+                                    break
+                    except Exception:
+                        raise RuntimeError(f"{path}\t-> {traceback.format_exc()}")
+                    pbar.update(1)
+                    pbar.postfix = Postfix(f" [сегментов: {total_segments}]")
+                    pbar.refresh()
+
             print(f"✓ Сегментация успешно завершена!")
         except Exception:
             raise RuntimeError(f"Ошибка! {traceback.format_exc()}")
 
 
-def preprocess_trainset(input_root, sample_rate, num_processes, exp_dir, percentage, normalize):
+def preprocess_trainset(input_root, sample_rate, exp_dir, percentage, normalize):
     # Инициализация и запуск обработки
     pp = PreProcess(sample_rate, exp_dir, percentage, normalize)
-    pp.pipeline_mp_inp_dir(input_root, num_processes)
+    pp.pipeline_inp_dir(input_root)
 
 
 if __name__ == "__main__":
     # Запуск препроцессинга
-    preprocess_trainset(input_root, sample_rate, num_processes, exp_dir, percentage, normalize)
+    preprocess_trainset(input_root, sample_rate, exp_dir, percentage, normalize)

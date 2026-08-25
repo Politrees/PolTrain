@@ -121,10 +121,11 @@ class DataPreprocessor:
         if not files:
             self._raise_no_files_error()
 
-        print(f"\n[2/3] - Запуск процесса извлечения признаков...\t\tНайдено файлов: {len(files)}")
+        print(f"\n[2/3] - Запуск процесса извлечения признаков...")
 
+        # ncols фиксируем, чтобы при сломанном определении ширины терминала tqdm не игнорировал bar_format
         # Обработка файлов
-        for file in tqdm(files, desc="Извлечение F0 (фундаментальной частоты)"):
+        for file in tqdm(files, desc="Извлечение F0 (фундаментальной частоты)", bar_format="{desc}: {n}/{total}", ncols=80):
             try:
                 inp_path = f"{inp_root}/{file}"
                 opt_path1 = f"{f0_quant_path}/{file}"
@@ -138,7 +139,7 @@ class DataPreprocessor:
             except:
                 raise RuntimeError(f"Ошибка извлечения тона!\nФайл - {inp_path}\n{traceback.format_exc()}")
 
-        for file in tqdm(files, desc="Извлечение семантических признаков HuBERT"):
+        for file in tqdm(files, desc="Извлечение семантических признаков HuBERT", bar_format="{desc}: {n}/{total}", ncols=80):
             try:
                 wav_path = f"{inp_root}/{file}"
                 out_path = f"{features_path}/{file.replace('.wav', '.npy')}"

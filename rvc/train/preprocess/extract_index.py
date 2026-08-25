@@ -24,7 +24,8 @@ try:
         npys = []
         listdir_res = sorted(os.listdir(feature_dir))
 
-        for name in tqdm(listdir_res, desc="Загрузка признаков HuBERT"):
+        # ncols фиксируем, чтобы при сломанном определении ширины терминала tqdm не игнорировал bar_format
+        for name in tqdm(listdir_res, desc="Загрузка признаков HuBERT", bar_format="{desc}: {n}/{total}", ncols=80):
             file_path = os.path.join(feature_dir, name)
             phone = np.load(file_path)
             npys.append(phone)
@@ -56,7 +57,7 @@ try:
         index_added.train(big_npy)
 
         batch_size_add = 8192
-        for i in tqdm(range(0, big_npy.shape[0], batch_size_add), desc="Добавление векторов в индекс"):
+        for i in tqdm(range(0, big_npy.shape[0], batch_size_add), desc="Добавление векторов в индекс", bar_format="{desc}: {n}/{total}", ncols=80):
             index_added.add(big_npy[i : i + batch_size_add])
 
         faiss.write_index(index_added, index_filepath)
