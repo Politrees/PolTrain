@@ -54,6 +54,8 @@ try:
         index_added = faiss.index_factory(768, f"IVF{n_ivf},Flat")
         index_ivf_added = faiss.extract_index_ivf(index_added)
         index_ivf_added.nprobe = 1
+
+        print("Обучение индекса...")
         index_added.train(big_npy)
 
         batch_size_add = 8192
