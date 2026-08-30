@@ -36,7 +36,7 @@ from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, k
 from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
 from rvc.train.utils.data_utils import DistributedBucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
 from rvc.train.utils.train_utils import HParams, extract_model, load_checkpoint, save_checkpoint
-from rvc.train.visualization import mel_spectrogram_similarity, plot_spectrogram_to_numpy
+from rvc.train.visualization import f0_error_cents, mel_spectrogram_similarity, plot_spectrogram_to_numpy
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
@@ -382,16 +382,16 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             "grad/norm_g": grad_norm_g,
         })
 
-        # Сохраняем данные последнего батча для визуализации
+        # Сохраняем данные последнего батча для визуализации и F0-метрики
         if rank == 0:
-            last_batch = (spec, ids_slice, y_hat)
+            last_batch = (spec, ids_slice, y_hat, pitchf)
 
         global_step += 1
 
     if rank == 0 and epoch % hps.train.log_interval == 0:
         avg = acc.average()
 
-        spec, ids_slice, y_hat = last_batch
+        spec, ids_slice, y_hat, pitchf = last_batch
         mel = spec_to_mel_torch(
             spec,
             hps.data.filter_length,
@@ -400,7 +400,8 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             hps.data.mel_fmin,
             hps.data.mel_fmax,
         )
-        y_mel = slice_segments(mel, ids_slice, hps.train.segment_size // hps.data.hop_length, dim=3)
+        segment_frames = hps.train.segment_size // hps.data.hop_length
+        y_mel = slice_segments(mel, ids_slice, segment_frames, dim=3)
         y_hat_mel = mel_spectrogram_torch(
             y_hat.float().squeeze(1),
             hps.data.filter_length,
@@ -412,10 +413,19 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             hps.data.mel_fmax,
         )
         mel_similarity = mel_spectrogram_similarity(y_hat_mel, y_mel)
+        f0_error = f0_error_cents(
+            y_hat,
+            pitchf,
+            ids_slice,
+            hps.data.sample_rate,
+            hps.data.hop_length,
+            segment_frames,
+        )
 
         scalar_dict = {
             **avg,
             "metrics/mel_sim": mel_similarity,
+            "metrics/f0_error_cents": f0_error,
             "Learning Rate/G": optim_g.param_groups[0]["lr"],
             "Learning Rate/D": optim_d.param_groups[0]["lr"],
         }
