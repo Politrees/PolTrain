@@ -56,13 +56,12 @@ class DataPreprocessor:
             torch.serialization.add_safe_globals([Dictionary])
             models, _, _ = load_model_ensemble_and_task([hubert_model_path], suffix="")
             return models[0].to(self.device).eval()
-        elif arch_fairseq == "Fairseq2":
+        if arch_fairseq == "Fairseq2":
             from rvc.lib.fairseq import load_model
 
             model = load_model(hubert_model_path)
             return model.to(self.device).eval()
-        else:
-            raise ValueError("Неизвестное значение для 'arch_fairseq'! Доступные варианты: 'Fairseq', 'Fairseq2'.")
+        raise ValueError("Неизвестное значение для 'arch_fairseq'! Доступные варианты: 'Fairseq', 'Fairseq2'.")
 
     def compute_f0(self, path, f0_method):
         """Вычисление F0"""
@@ -121,7 +120,7 @@ class DataPreprocessor:
         if not files:
             self._raise_no_files_error()
 
-        print(f"\n[2/3] - Запуск процесса извлечения признаков...")
+        print("\n[2/3] - Запуск процесса извлечения признаков...")
 
         # ncols фиксируем, чтобы при сломанном определении ширины терминала tqdm не игнорировал bar_format
         # Обработка файлов
@@ -188,7 +187,7 @@ def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2)
             f"{os.path.join(gt_wavs_dir, name)}.wav|"
             f"{os.path.join(feature_dir, name)}.npy|"
             f"{os.path.join(f0_dir, name)}.wav.npy|"
-            f"{os.path.join(f0nsf_dir, name)}.wav.npy|0"
+            f"{os.path.join(f0nsf_dir, name)}.wav.npy|0",
         )
 
     if include_mutes > 0:
@@ -213,6 +212,6 @@ if __name__ == "__main__":
 
         generate_filelist(exp_dir, sample_rate, include_mutes)
     except Exception as e:
-        print(f"Критическая ошибка: {str(e)}")
+        print(f"Критическая ошибка: {e!s}")
         print(traceback.format_exc())
         sys.exit(1)
