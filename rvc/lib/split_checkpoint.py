@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""
-Утилита для разделения единого чекпоинта на отдельные G/D файлы.
+"""Утилита для разделения единого чекпоинта на отдельные G/D файлы.
 
 Использование:
     python split_checkpoint.py path/to/checkpoint.pth output/folder/
-    
+
 Создаст:
     output/folder/G_pretrain.pth
     output/folder/D_pretrain.pth
@@ -18,12 +17,12 @@ import torch
 
 
 def split_checkpoint(checkpoint_path: str, output_dir: str):
-    """
-    Разделяет единый чекпоинт на отдельные G и D файлы.
-    
+    """Разделяет единый чекпоинт на отдельные G и D файлы.
+
     Args:
         checkpoint_path: Путь к единому чекпоинту (checkpoint.pth)
         output_dir: Папка для сохранения G_pretrain.pth и D_pretrain.pth
+
     """
     if not os.path.exists(checkpoint_path):
         print(f"Ошибка: файл '{checkpoint_path}' не найден!")

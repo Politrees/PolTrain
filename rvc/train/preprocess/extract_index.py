@@ -11,7 +11,7 @@ exp_dir = str(sys.argv[1])
 index_algorithm = str(sys.argv[2])
 
 try:
-    print(f"\n[3/3] - Запуск процесса генерации индекса...")
+    print("\n[3/3] - Запуск процесса генерации индекса...")
     feature_dir = os.path.join(exp_dir, "data", "features")
     model_name = os.path.basename(exp_dir)
 
@@ -59,7 +59,9 @@ try:
         index_added.train(big_npy)
 
         batch_size_add = 8192
-        for i in tqdm(range(0, big_npy.shape[0], batch_size_add), desc="Добавление векторов в индекс", bar_format="{desc}: {n}/{total}", ncols=80):
+        for i in tqdm(
+            range(0, big_npy.shape[0], batch_size_add), desc="Добавление векторов в индекс", bar_format="{desc}: {n}/{total}", ncols=80
+        ):
             index_added.add(big_npy[i : i + batch_size_add])
 
         faiss.write_index(index_added, index_filepath)

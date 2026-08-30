@@ -16,14 +16,13 @@ import datetime
 import json
 import pathlib
 from collections import defaultdict
-from distutils.util import strtobool
 from random import randint
 from time import time as ttime
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from torch.nn import functional as F
+from distutils.util import strtobool
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -33,10 +32,27 @@ from rvc.lib.algorithm.commons import grad_norm, slice_segments
 from rvc.lib.algorithm.discriminators import MultiPeriodDiscriminator
 from rvc.lib.algorithm.synthesizers import Synthesizer
 from rvc.train.losses import discriminator_loss, feature_loss, generator_loss, kl_loss
-from rvc.train.mel_processing import MultiScaleMelSpectrogramLoss, mel_spectrogram_torch, spec_to_mel_torch
-from rvc.train.utils.data_utils import DistributedBucketSampler, TextAudioCollateMultiNSFsid, TextAudioLoaderMultiNSFsid
-from rvc.train.utils.train_utils import HParams, extract_model, load_checkpoint, save_checkpoint
-from rvc.train.visualization import f0_error_cents, mel_spectrogram_similarity, plot_spectrogram_to_numpy
+from rvc.train.mel_processing import (
+    MultiScaleMelSpectrogramLoss,
+    mel_spectrogram_torch,
+    spec_to_mel_torch,
+)
+from rvc.train.utils.data_utils import (
+    DistributedBucketSampler,
+    TextAudioCollateMultiNSFsid,
+    TextAudioLoaderMultiNSFsid,
+)
+from rvc.train.utils.train_utils import (
+    HParams,
+    extract_model,
+    load_checkpoint,
+    save_checkpoint,
+)
+from rvc.train.visualization import (
+    f0_error_cents,
+    mel_spectrogram_similarity,
+    plot_spectrogram_to_numpy,
+)
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
@@ -64,7 +80,7 @@ def generate_config(config_save_path, sample_rate, vocoder):
     config_path = os.path.join("rvc", "configs", f"{sample_rate}.json")
     if not pathlib.Path(config_save_path).exists():
         with open(config_save_path, "w", encoding="utf-8") as f:
-            with open(config_path, "r", encoding="utf-8") as config_file:
+            with open(config_path, encoding="utf-8") as config_file:
                 config_data = json.load(config_file)
                 config_data["model"]["vocoder"] = vocoder
                 json.dump(config_data, f, ensure_ascii=False, indent=2)
@@ -95,7 +111,7 @@ def get_hparams():
         generate_config(config_save_path, args.sample_rate, args.vocoder)
 
     # Загрузка файла конфигурации
-    with open(config_save_path, "r", encoding="utf-8") as f:
+    with open(config_save_path, encoding="utf-8") as f:
         config = json.load(f)
 
     hparams = HParams(**config)
@@ -140,7 +156,7 @@ class EpochRecorder:
         now_time = ttime()
         elapsed_time = round(now_time - self.last_time, 1)
         self.last_time = now_time
-        return f"[{str(datetime.timedelta(seconds=int(elapsed_time)))}]"
+        return f"[{datetime.timedelta(seconds=int(elapsed_time))!s}]"
 
 
 def main():
@@ -150,7 +166,7 @@ def main():
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
 
     device = torch.device(
-        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu",
     )
     gpus = [int(item) for item in hps.gpus.split("-")] if device.type == "cuda" else [0]
     n_gpus = len(gpus)
@@ -236,8 +252,12 @@ def run(hps, rank, n_gpus, device, device_id):
         elif hps.optimizer == "PolOpt":
             from rvc.train.utils.optimizers.PolOpt import PolOpt
 
-            optim_g = PolOpt(net_g.parameters(), lr=hps.train.learning_rate, betas=(0.8, 0.99), eps=1e-7, weight_decay=0.01, max_step_clip=1.0)
-            optim_d = PolOpt(net_d.parameters(), lr=hps.train.learning_rate * 1.5, betas=(0.5, 0.99), eps=1e-7, weight_decay=0.01, max_step_clip=1.0)
+            optim_g = PolOpt(
+                net_g.parameters(), lr=hps.train.learning_rate, betas=(0.8, 0.99), eps=1e-7, weight_decay=0.01, max_step_clip=1.0
+            )
+            optim_d = PolOpt(
+                net_d.parameters(), lr=hps.train.learning_rate * 1.5, betas=(0.5, 0.99), eps=1e-7, weight_decay=0.01, max_step_clip=1.0
+            )
         else:
             optim_g = torch.optim.AdamW(net_g.parameters(), hps.train.learning_rate, betas=hps.train.betas, eps=hps.train.eps)
             optim_d = torch.optim.AdamW(net_d.parameters(), hps.train.learning_rate, betas=hps.train.betas, eps=hps.train.eps)
@@ -371,16 +391,18 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
             optim_g.step()
 
         # Аккумуляция метрик
-        acc.update(**{
-            "loss/avg/d": loss_disc,
-            "loss/avg/g": loss_gen,
-            "loss/g/fm": loss_fm,
-            "loss/g/mel": loss_mel,
-            "loss/g/kl": loss_kl,
-            "loss/g/total": loss_gen_all,
-            "grad/norm_d": grad_norm_d,
-            "grad/norm_g": grad_norm_g,
-        })
+        acc.update(
+            **{
+                "loss/avg/d": loss_disc,
+                "loss/avg/g": loss_gen,
+                "loss/g/fm": loss_fm,
+                "loss/g/mel": loss_mel,
+                "loss/g/kl": loss_kl,
+                "loss/g/total": loss_gen_all,
+                "grad/norm_d": grad_norm_d,
+                "grad/norm_g": grad_norm_g,
+            }
+        )
 
         # Сохраняем данные последнего батча для визуализации и F0-метрики
         if rank == 0:
@@ -441,8 +463,7 @@ def train_and_evaluate(hps, rank, epoch, nets, optims, train_loader, writer_eval
     # Вывод в консоль
     if rank == 0:
         print(
-            f"{epoch_recorder.record()}: {hps.model_name} ▸ "
-            f"Эпоха {epoch}/{hps.total_epoch} (Шаг {global_step})",
+            f"{epoch_recorder.record()}: {hps.model_name} ▸ Эпоха {epoch}/{hps.total_epoch} (Шаг {global_step})",
             flush=True,
         )
 

@@ -1,16 +1,14 @@
 import math
-from typing import Tuple, List
+
 import torch
-from torch import Tensor
 from torch.optim.optimizer import Optimizer
 
 
 class PolOpt(Optimizer):
-    """
-    PolOpt (AdaBelief / Yogi Hybrid Optimizer)
+    """PolOpt (AdaBelief / Yogi Hybrid Optimizer)
 
-    1. Yogi-sign control для второго момента: вместо резкого изменения дисперсии (variance), 
-       используется знак разности sign((g - m)^2 - v), что предотвращает падение знаменателя в ноль 
+    1. Yogi-sign control для второго момента: вместо резкого изменения дисперсии (variance),
+       используется знак разности sign((g - m)^2 - v), что предотвращает падение знаменателя в ноль
        и взрывные скачки learning rate при игре генератора и дискриминатора.
     2. Раздельный (Decoupled) Weight Decay как в AdamW для улучшения генерализации.
     3. Корректная позиция Epsilon (снаружи корня после коррекции смещения).
@@ -24,13 +22,14 @@ class PolOpt(Optimizer):
         eps: член числовой стабильности (по умолчанию: 1e-7)
         weight_decay: decoupled weight decay (по умолчанию: 0.01)
         max_step_clip: максимальная абсолютная величина шага обновления (по умолчанию: 1.0)
+
     """
 
     def __init__(
         self,
         params,
         lr: float = 1e-4,
-        betas: Tuple[float, float] = (0.8, 0.99),
+        betas: tuple[float, float] = (0.8, 0.99),
         eps: float = 1e-7,
         weight_decay: float = 0.01,
         max_step_clip: float = 1.0,
@@ -108,8 +107,8 @@ class PolOpt(Optimizer):
                 exp_avg_var.addcmul_(torch.sign(diff), grad_res_sq, value=1.0 - beta2)
 
                 # 5. Коррекция смещения (Bias correction)
-                bias_correction1 = 1.0 - beta1 ** step
-                bias_correction2 = 1.0 - beta2 ** step
+                bias_correction1 = 1.0 - beta1**step
+                bias_correction2 = 1.0 - beta2**step
                 step_size = lr / bias_correction1
 
                 # 6. Знаменатель с безопасным размещением eps СНАРУЖИ корня
