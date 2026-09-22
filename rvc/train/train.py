@@ -39,7 +39,16 @@ from rvc.train.utils.train_utils import HParams, extract_model, load_checkpoint,
 from rvc.train.visualization import f0_error_cents, mel_spectrogram_similarity, plot_spectrogram_to_numpy
 
 torch.backends.cudnn.deterministic = False
-torch.backends.cudnn.benchmark = True
+if os.name == "nt":  # Включение только на Windows (в Kaggle и Colab снижает производительность)
+    torch.backends.cudnn.benchmark = True
+
+# Настройки TF32, в некоторых случаях должны повысить производительность
+try:
+    torch.set_float32_matmul_precision("high")
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+except Exception as e:
+    print(f"Torch TF32: {e}")
 
 global_step = 0
 
