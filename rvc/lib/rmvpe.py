@@ -1,11 +1,9 @@
-from typing import List
-
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from librosa.filters import mel
 from scipy.signal import medfilt
+from torch import nn
 
 N_MELS = 128
 N_CLASS = 360
@@ -115,7 +113,7 @@ class Encoder(nn.Module):
         self.out_channel = out_channels
 
     def forward(self, x: torch.Tensor):
-        concat_tensors: List[torch.Tensor] = []
+        concat_tensors: list[torch.Tensor] = []
         x = self.bn(x)
         for i in range(self.n_encoders):
             t, x = self.layers[i](x)
@@ -281,7 +279,7 @@ class AdaptiveHyperedgeGeneration(nn.Module):
         self.global_proto = nn.Parameter(torch.randn(num_hyperedges, in_channels))
         self.context_mapper = nn.Linear(2 * in_channels, num_hyperedges * in_channels, bias=False)
         self.query_proj = nn.Linear(in_channels, in_channels, bias=False)
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
 
     def forward(self, x):
         B, N, C = x.shape
@@ -342,10 +340,9 @@ class HyperACE(nn.Module):
         self.c_h = int(c_mid * c_h)
         self.c_l = int(c_mid * c_l)
         self.c_s = c_mid - self.c_h - self.c_l
-        self.high_order_branch = nn.ModuleList([
-            C3AH(self.c_h, self.c_h, num_hyperedges=num_hyperedges, num_heads=num_heads, e=1.0) 
-            for _ in range(k)
-        ])
+        self.high_order_branch = nn.ModuleList(
+            [C3AH(self.c_h, self.c_h, num_hyperedges=num_hyperedges, num_heads=num_heads, e=1.0) for _ in range(k)]
+        )
         self.high_order_fuse = Conv(self.c_h * k, self.c_h, 1, 1)
         self.low_order_branch = nn.Sequential(*[DS_C3k(self.c_l, self.c_l, n=1, k=3, e=1.0) for _ in range(l)])
         self.final_fuse = Conv(self.c_h + self.c_l + self.c_s, out_channels, 1, 1)
@@ -354,12 +351,15 @@ class HyperACE(nn.Module):
         B2, B3, B4, B5 = x
         _, _, H4, W4 = B4.shape
 
-        fused = torch.cat((
-            F.interpolate(B2, size=(H4, W4), mode='bilinear', align_corners=False),
-            F.interpolate(B3, size=(H4, W4), mode='bilinear', align_corners=False),
-            B4,
-            F.interpolate(B5, size=(H4, W4), mode='bilinear', align_corners=False)
-        ), dim=1)
+        fused = torch.cat(
+            (
+                F.interpolate(B2, size=(H4, W4), mode="bilinear", align_corners=False),
+                F.interpolate(B3, size=(H4, W4), mode="bilinear", align_corners=False),
+                B4,
+                F.interpolate(B5, size=(H4, W4), mode="bilinear", align_corners=False),
+            ),
+            dim=1,
+        )
 
         x_h, x_l, x_s = self.fuse_conv(fused).split([self.c_h, self.c_l, self.c_s], dim=1)
 
@@ -385,22 +385,22 @@ class YOLO13Encoder(nn.Module):
 
         self.p2 = nn.Sequential(
             DSConv(base_channels, base_channels * 2, k=3, s=(2, 2)),
-            DS_C3k2(base_channels * 2, base_channels * 2, n=1)
+            DS_C3k2(base_channels * 2, base_channels * 2, n=1),
         )
 
         self.p3 = nn.Sequential(
             DSConv(base_channels * 2, base_channels * 4, k=3, s=(2, 2)),
-            DS_C3k2(base_channels * 4, base_channels * 4, n=2)
+            DS_C3k2(base_channels * 4, base_channels * 4, n=2),
         )
 
         self.p4 = nn.Sequential(
             DSConv(base_channels * 4, base_channels * 8, k=3, s=(2, 2)),
-            DS_C3k2(base_channels * 8, base_channels * 8, n=2)
+            DS_C3k2(base_channels * 8, base_channels * 8, n=2),
         )
 
         self.p5 = nn.Sequential(
             DSConv(base_channels * 8, base_channels * 16, k=3, s=(2, 2)),
-            DS_C3k2(base_channels * 16, base_channels * 16, n=1)
+            DS_C3k2(base_channels * 16, base_channels * 16, n=1),
         )
 
         self.out_channels = [base_channels * 2, base_channels * 4, base_channels * 8, base_channels * 16]
@@ -446,19 +446,19 @@ class YOLO13FullPADDecoder(nn.Module):
         p2, p3, p4, p5 = enc_feats
 
         d5 = self.skip_p5(p5)
-        h5 = self.h_to_d5(F.interpolate(h_ace, size=d5.shape[2:], mode='bilinear', align_corners=False))
+        h5 = self.h_to_d5(F.interpolate(h_ace, size=d5.shape[2:], mode="bilinear", align_corners=False))
         d5_fused = self.fusion_d5(d5, h5)
 
-        d4 = self.up_d5(F.interpolate(d5_fused, size=p4.shape[2:], mode='bilinear', align_corners=False)) + self.skip_p4(p4)
-        h4 = self.h_to_d4(F.interpolate(h_ace, size=d4.shape[2:], mode='bilinear', align_corners=False))
+        d4 = self.up_d5(F.interpolate(d5_fused, size=p4.shape[2:], mode="bilinear", align_corners=False)) + self.skip_p4(p4)
+        h4 = self.h_to_d4(F.interpolate(h_ace, size=d4.shape[2:], mode="bilinear", align_corners=False))
         d4_fused = self.fusion_d4(d4, h4)
 
-        d3 = self.up_d4(F.interpolate(d4_fused, size=p3.shape[2:], mode='bilinear', align_corners=False)) + self.skip_p3(p3)
-        h3 = self.h_to_d3(F.interpolate(h_ace, size=d3.shape[2:], mode='bilinear', align_corners=False))
+        d3 = self.up_d4(F.interpolate(d4_fused, size=p3.shape[2:], mode="bilinear", align_corners=False)) + self.skip_p3(p3)
+        h3 = self.h_to_d3(F.interpolate(h_ace, size=d3.shape[2:], mode="bilinear", align_corners=False))
         d3_fused = self.fusion_d3(d3, h3)
 
-        d2 = self.up_d3(F.interpolate(d3_fused, size=p2.shape[2:], mode='bilinear', align_corners=False)) + self.skip_p2(p2)
-        h2 = self.h_to_d2(F.interpolate(h_ace, size=d2.shape[2:], mode='bilinear', align_corners=False))
+        d2 = self.up_d3(F.interpolate(d3_fused, size=p2.shape[2:], mode="bilinear", align_corners=False)) + self.skip_p2(p2)
+        h2 = self.h_to_d2(F.interpolate(h_ace, size=d2.shape[2:], mode="bilinear", align_corners=False))
         d2_fused = self.fusion_d2(d2, h2)
 
         return self.final_conv(self.final_d2(d2_fused))
@@ -498,7 +498,7 @@ class HPADeepUnet(nn.Module):
         features = self.encoder(x)
         h_ace = self.hyperace(features)
         out = self.decoder(features, h_ace)
-        return F.interpolate(out, size=x.shape[2:], mode='bilinear', align_corners=False)
+        return F.interpolate(out, size=x.shape[2:], mode="bilinear", align_corners=False)
 
 
 # ==================== E2E Model ====================
@@ -622,7 +622,7 @@ class MelSpectrogram(torch.nn.Module):
 class RMVPE:
     def __init__(self, model_path, device=None, hpa=False):
         self.hpa = hpa
-        self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.resample_kernel = {}
 
         model = E2E(4, 1, (2, 2), hpa=hpa)
@@ -644,7 +644,7 @@ class RMVPE:
                 output_chunks = []
                 pad_frames = mel.shape[-1]
                 for start in range(0, pad_frames, chunk_size):
-                    mel_chunk = mel[..., start:min(start + chunk_size, pad_frames)]
+                    mel_chunk = mel[..., start : min(start + chunk_size, pad_frames)]
                     out_chunk = self.model(mel_chunk)
                     output_chunks.append(out_chunk)
                 hidden = torch.cat(output_chunks, dim=1)

@@ -2,8 +2,7 @@ import numpy as np
 
 
 class Slicer:
-    """
-    A class for slicing audio waveforms into segments based on silence detection.
+    """A class for slicing audio waveforms into segments based on silence detection.
 
     Attributes:
         sr (int): Sampling rate of the audio waveform.
@@ -15,6 +14,7 @@ class Slicer:
 
     Methods:
         slice(waveform): Slices the given waveform into segments.
+
     """
 
     def __init__(
@@ -26,8 +26,7 @@ class Slicer:
         hop_size: int = 20,
         max_sil_kept: int = 5000,
     ):
-        """
-        Initializes a Slicer object.
+        """Initializes a Slicer object.
 
         Args:
             sr (int): Sampling rate of the audio waveform.
@@ -39,6 +38,7 @@ class Slicer:
 
         Raises:
             ValueError: If the input parameters are not valid.
+
         """
         if not min_length >= min_interval >= hop_size:
             raise ValueError("min_length >= min_interval >= hop_size is required")
@@ -55,28 +55,27 @@ class Slicer:
         self.max_sil_kept = round(sr * max_sil_kept / 1000 / self.hop_size)
 
     def _apply_slice(self, waveform, begin, end):
-        """
-        Applies a slice to the waveform.
+        """Applies a slice to the waveform.
 
         Args:
             waveform (numpy.ndarray): The waveform to slice.
             begin (int): Start frame index.
             end (int): End frame index.
+
         """
         start_idx = begin * self.hop_size
         if len(waveform.shape) > 1:
             end_idx = min(waveform.shape[1], end * self.hop_size)
             return waveform[:, start_idx:end_idx]
-        else:
-            end_idx = min(waveform.shape[0], end * self.hop_size)
-            return waveform[start_idx:end_idx]
+        end_idx = min(waveform.shape[0], end * self.hop_size)
+        return waveform[start_idx:end_idx]
 
     def slice(self, waveform):
-        """
-        Slices the given waveform into segments.
+        """Slices the given waveform into segments.
 
         Args:
             waveform (numpy.ndarray): The waveform to slice.
+
         """
         # Calculate RMS for each frame
         samples = waveform.mean(axis=0) if len(waveform.shape) > 1 else waveform
@@ -150,18 +149,17 @@ class Slicer:
         # Extract segments based on silence tags
         if not sil_tags:
             return [waveform]
-        else:
-            chunks = []
-            if sil_tags[0][0] > 0:
-                chunks.append(self._apply_slice(waveform, 0, sil_tags[0][0]))
+        chunks = []
+        if sil_tags[0][0] > 0:
+            chunks.append(self._apply_slice(waveform, 0, sil_tags[0][0]))
 
-            for i in range(len(sil_tags) - 1):
-                chunks.append(self._apply_slice(waveform, sil_tags[i][1], sil_tags[i + 1][0]))
+        for i in range(len(sil_tags) - 1):
+            chunks.append(self._apply_slice(waveform, sil_tags[i][1], sil_tags[i + 1][0]))
 
-            if sil_tags[-1][1] < total_frames:
-                chunks.append(self._apply_slice(waveform, sil_tags[-1][1], total_frames))
+        if sil_tags[-1][1] < total_frames:
+            chunks.append(self._apply_slice(waveform, sil_tags[-1][1], total_frames))
 
-            return chunks
+        return chunks
 
 
 def get_rms(
@@ -170,14 +168,14 @@ def get_rms(
     hop_length=512,
     pad_mode="constant",
 ):
-    """
-    Calculates the root mean square (RMS) of a waveform.
+    """Calculates the root mean square (RMS) of a waveform.
 
     Args:
         y (numpy.ndarray): The waveform.
         frame_length (int, optional): The length of the frame in samples. Defaults to 2048.
         hop_length (int, optional): The hop length between frames in samples. Defaults to 512.
         pad_mode (str, optional): The padding mode used for the waveform. Defaults to "constant".
+
     """
     padding = (int(frame_length // 2), int(frame_length // 2))
     y = np.pad(y, padding, mode=pad_mode)

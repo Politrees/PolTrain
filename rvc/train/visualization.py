@@ -90,8 +90,7 @@ def _slice_pitch(pitchf, ids_slice, segment_frames, device):
 
 
 def f0_error_cents(y_hat, pitchf, ids_slice, sample_rate, hop_length, segment_frames):
-    """
-    Средняя ошибка F0 в центах между сгенерированным аудио и pitchf датасета.
+    """Средняя ошибка F0 в центах между сгенерированным аудио и pitchf датасета.
 
     Меньше = лучше. 100 cents = 1 полутон. Метрика считается только на voiced
     кадрах, где и y_hat, и target pitchf имеют ненулевой F0.
@@ -108,6 +107,6 @@ def f0_error_cents(y_hat, pitchf, ids_slice, sample_rate, hop_length, segment_fr
         return torch.as_tensor(2400.0, device=y_hat.device)
 
     cents_error = 1200.0 * torch.abs(
-        torch.log2(fake_f0[voiced_mask].clamp_min(1e-5) / target_f0[voiced_mask].clamp_min(1e-5))
+        torch.log2(fake_f0[voiced_mask].clamp_min(1e-5) / target_f0[voiced_mask].clamp_min(1e-5)),
     )
     return cents_error.clamp(max=2400.0).mean()
