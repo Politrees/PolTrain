@@ -11,8 +11,7 @@ from rvc.lib.algorithm.commons import get_padding, init_weights
 
 
 class ResBlock(nn.Module):
-    """
-    Residual block with multiple dilated convolutions.
+    """Residual block with multiple dilated convolutions.
 
     This block applies a sequence of dilated convolutional layers with Leaky ReLU activation.
     It's designed to capture information at different scales due to the varying dilation rates.
@@ -23,6 +22,7 @@ class ResBlock(nn.Module):
         kernel_size (int, optional): Kernel size for the convolutional layers. Defaults to 7.
         dilation (tuple[int], optional): Tuple of dilation rates for the convolutional layers. Defaults to (1, 3, 5).
         leaky_relu_slope (float, optional): Slope for the Leaky ReLU activation. Defaults to 0.2.
+
     """
 
     def __init__(
@@ -46,10 +46,10 @@ class ResBlock(nn.Module):
                         stride=1,
                         dilation=d,
                         padding=get_padding(kernel_size, d),
-                    )
+                    ),
                 )
                 for d in dilation
-            ]
+            ],
         )
         self.convs1.apply(init_weights)
 
@@ -63,10 +63,10 @@ class ResBlock(nn.Module):
                         stride=1,
                         dilation=1,
                         padding=get_padding(kernel_size, 1),
-                    )
+                    ),
                 )
                 for d in dilation
-            ]
+            ],
         )
         self.convs2.apply(init_weights)
 
@@ -87,14 +87,14 @@ class ResBlock(nn.Module):
 
 
 class AdaIN(nn.Module):
-    """
-    Adaptive Instance Normalization layer.
+    """Adaptive Instance Normalization layer.
 
     This layer applies a scaling factor to the input based on a learnable weight.
 
     Args:
         channels (int): Number of input channels.
         leaky_relu_slope (float, optional): Slope for the Leaky ReLU activation applied after scaling. Defaults to 0.2.
+
     """
 
     def __init__(
@@ -116,8 +116,7 @@ class AdaIN(nn.Module):
 
 
 class ParallelResBlock(nn.Module):
-    """
-    Parallel residual block that applies multiple residual blocks with different kernel sizes in parallel.
+    """Parallel residual block that applies multiple residual blocks with different kernel sizes in parallel.
 
     Args:
         in_channels (int): Number of input channels.
@@ -125,6 +124,7 @@ class ParallelResBlock(nn.Module):
         kernel_sizes (tuple[int], optional): Tuple of kernel sizes for the parallel residual blocks. Defaults to (3, 7, 11).
         dilation (tuple[int], optional): Tuple of dilation rates for the convolutional layers within the residual blocks. Defaults to (1, 3, 5).
         leaky_relu_slope (float, optional): Slope for the Leaky ReLU activation. Defaults to 0.2.
+
     """
 
     def __init__(
@@ -164,7 +164,7 @@ class ParallelResBlock(nn.Module):
                     AdaIN(channels=out_channels),
                 )
                 for kernel_size in kernel_sizes
-            ]
+            ],
         )
 
     def forward(self, x: torch.Tensor):
@@ -178,8 +178,7 @@ class ParallelResBlock(nn.Module):
 
 
 class SineGenerator(nn.Module):
-    """
-    Definition of sine generator
+    """Definition of sine generator
 
     Generates sine waveforms with optional harmonics and additive noise.
     Can be used to create harmonic noise source for neural vocoders.
@@ -190,6 +189,7 @@ class SineGenerator(nn.Module):
         sine_amp (float): Amplitude of sine-waveform (default 0.1).
         noise_std (float): Standard deviation of Gaussian noise (default 0.003).
         voiced_threshold (float): F0 threshold for voiced/unvoiced classification (default 0).
+
     """
 
     def __init__(
@@ -264,8 +264,7 @@ class SineGenerator(nn.Module):
 
 
 class RefineGANGenerator(nn.Module):
-    """
-    RefineGAN generator for audio synthesis.
+    """RefineGAN generator for audio synthesis.
 
     This generator uses a combination of downsampling, residual blocks, and parallel residual blocks
     to refine an input mel-spectrogram and fundamental frequency (F0) into an audio waveform.
@@ -280,6 +279,7 @@ class RefineGANGenerator(nn.Module):
         start_channels (int, optional): Number of channels in the initial convolutional layer. Defaults to 16.
         gin_channels (int, optional): Number of channels for the global conditioning input. Defaults to 256.
         checkpointing (bool, optional): Whether to use checkpointing for memory efficiency. Defaults to False.
+
     """
 
     def __init__(
@@ -312,7 +312,7 @@ class RefineGANGenerator(nn.Module):
                 7,
                 1,
                 padding=3,
-            )
+            ),
         )
 
         # (8,  16, 17280) = 4th upscale
@@ -327,7 +327,6 @@ class RefineGANGenerator(nn.Module):
         self.downsample_blocks = nn.ModuleList([])
         self.df0 = []
         for i, u in enumerate(upsample_rates):
-
             new_size = int(size / upsample_rates[-i - 1])
             # T dimension factors for torchaudio.functional.resample
             self.df0.append([size, new_size])
@@ -347,7 +346,7 @@ class RefineGANGenerator(nn.Module):
                 7,
                 1,
                 padding=3,
-            )
+            ),
         )
 
         self.mel_conv.apply(init_weights)
@@ -370,7 +369,7 @@ class RefineGANGenerator(nn.Module):
                     kernel_sizes=(3, 7, 11),
                     dilation=(1, 3, 5),
                     leaky_relu_slope=leaky_relu_slope,
-                )
+                ),
             )
 
             channels = new_channels

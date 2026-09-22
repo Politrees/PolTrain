@@ -99,18 +99,13 @@ class PreProcess:
     def pipeline_inp_dir(self, input_root):
         try:
             # Собираем только аудиофайлы; всё остальное в папке датасета игнорируем
-            names = sorted(
-                name
-                for name in os.listdir(input_root)
-                if is_audio_file(os.path.join(input_root, name))
-            )
+            names = sorted(name for name in os.listdir(input_root) if is_audio_file(os.path.join(input_root, name)))
             if not names:
                 raise FileNotFoundError(
-                    f"В папке '{input_root}' не найдено ни одного аудиофайла "
-                    f"(поддерживаются: {', '.join(sorted(AUDIO_EXTENSIONS))})."
+                    f"В папке '{input_root}' не найдено ни одного аудиофайла (поддерживаются: {', '.join(sorted(AUDIO_EXTENSIONS))}).",
                 )
 
-            print(f"[1/3] - Запуск процесса сегментации аудиоданных...")
+            print("[1/3] - Запуск процесса сегментации аудиоданных...")
 
             total_segments = 0
             # Прогресс по файлам; счетчик сегментов тикает в постфиксе в реальном времени.
@@ -161,7 +156,7 @@ class PreProcess:
                     pbar.postfix = Postfix(f" [сегментов: {total_segments}]")
                     pbar.refresh()
 
-            print(f"✓ Сегментация успешно завершена!")
+            print("✓ Сегментация успешно завершена!")
         except Exception:
             raise RuntimeError(f"Ошибка! {traceback.format_exc()}")
 

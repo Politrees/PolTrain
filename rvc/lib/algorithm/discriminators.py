@@ -8,8 +8,7 @@ from rvc.lib.algorithm.residuals import LRELU_SLOPE
 
 
 class MultiPeriodDiscriminator(torch.nn.Module):
-    """
-    Multi-period discriminator.
+    """Multi-period discriminator.
 
     This class implements a multi-period discriminator, which is used to
     discriminate between real and fake audio signals. The discriminator
@@ -30,9 +29,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
 
         self.checkpointing = checkpointing
         self.discriminators = torch.nn.ModuleList(
-            [DiscriminatorS()]
-            + [DiscriminatorP(p) for p in periods]
-            + [DiscriminatorR(r) for r in resolutions]
+            [DiscriminatorS()] + [DiscriminatorP(p) for p in periods] + [DiscriminatorR(r) for r in resolutions],
         )
 
     def forward(self, y, y_hat):
@@ -53,8 +50,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
 
 
 class DiscriminatorS(torch.nn.Module):
-    """
-    Discriminator for the short-term component.
+    """Discriminator for the short-term component.
 
     This class implements a discriminator for the short-term component
     of the audio signal. The discriminator is composed of a series of
@@ -71,7 +67,7 @@ class DiscriminatorS(torch.nn.Module):
                 weight_norm(torch.nn.Conv1d(256, 1024, 41, 4, groups=64, padding=20)),
                 weight_norm(torch.nn.Conv1d(1024, 1024, 41, 4, groups=256, padding=20)),
                 weight_norm(torch.nn.Conv1d(1024, 1024, 5, 1, padding=2)),
-            ]
+            ],
         )
         self.conv_post = weight_norm(torch.nn.Conv1d(1024, 1, 3, 1, padding=1))
         self.lrelu = torch.nn.LeakyReLU(LRELU_SLOPE)
@@ -88,8 +84,7 @@ class DiscriminatorS(torch.nn.Module):
 
 
 class DiscriminatorP(torch.nn.Module):
-    """
-    Discriminator for the long-term component.
+    """Discriminator for the long-term component.
 
     This class implements a discriminator for the long-term component
     of the audio signal. The discriminator is composed of a series of
@@ -99,6 +94,7 @@ class DiscriminatorP(torch.nn.Module):
     Args:
         period (int): Period of the discriminator.
         kernel_size (int): Kernel size of the convolutional layers. Defaults to 5.
+
     """
 
     def __init__(self, period: int, kernel_size: int = 5):
@@ -113,14 +109,14 @@ class DiscriminatorP(torch.nn.Module):
                         (kernel_size, 1),
                         (stride, 1),
                         padding=(get_padding(kernel_size, 1), 0),
-                    )
+                    ),
                 )
                 for input_channel, output_channel, stride in zip(
                     [1, 32, 128, 512, 1024],  # input_channels
                     [32, 128, 512, 1024, 1024],  # output_channels
                     [3, 3, 3, 3, 1],  # strides
                 )
-            ]
+            ],
         )
 
         self.conv_post = weight_norm(torch.nn.Conv2d(1024, 1, (3, 1), 1, padding=(1, 0)))
@@ -157,7 +153,7 @@ class DiscriminatorR(torch.nn.Module):
                 weight_norm(torch.nn.Conv2d(32, 32, (3, 9), stride=(1, 2), padding=(1, 4))),
                 weight_norm(torch.nn.Conv2d(32, 32, (3, 9), stride=(1, 2), padding=(1, 4))),
                 weight_norm(torch.nn.Conv2d(32, 32, (3, 3), padding=(1, 1))),
-            ]
+            ],
         )
         self.conv_post = weight_norm(torch.nn.Conv2d(32, 1, (3, 3), padding=(1, 1)))
 
@@ -177,7 +173,7 @@ class DiscriminatorR(torch.nn.Module):
     def spectrogram(self, x):
         n_fft, hop_length, win_length = self.resolution
         pad = int((n_fft - hop_length) / 2)
-        x = F.pad(x,(pad, pad), mode="reflect").squeeze(1)
+        x = F.pad(x, (pad, pad), mode="reflect").squeeze(1)
         x = torch.stft(
             x,
             n_fft=n_fft,
