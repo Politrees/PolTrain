@@ -43,12 +43,12 @@ if os.name == "nt":  # Включение только на Windows (в Kaggle �
     torch.backends.cudnn.benchmark = True
 
 # Настройки TF32, в некоторых случаях должны повысить производительность
-# try:
-#     torch.set_float32_matmul_precision("high")
-#     torch.backends.cuda.matmul.allow_tf32 = True
-#     torch.backends.cudnn.allow_tf32 = True
-# except Exception as e:
-#     print(f"Torch TF32: {e}")
+try:
+    torch.set_float32_matmul_precision("high")
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+except Exception as e:
+    print(f"Torch TF32: {e}")
 
 global_step = 0
 
