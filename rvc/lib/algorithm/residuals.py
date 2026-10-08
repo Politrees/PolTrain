@@ -1,5 +1,4 @@
 from itertools import chain
-from typing import Optional, Tuple
 
 import torch
 from torch.nn.utils import remove_weight_norm
@@ -20,31 +19,29 @@ def create_conv1d_layer(channels, kernel_size, dilation):
             1,
             dilation=dilation,
             padding=get_padding(kernel_size, dilation),
-        )
+        ),
     )
 
 
-def apply_mask(tensor: torch.Tensor, mask: Optional[torch.Tensor]):
+def apply_mask(tensor: torch.Tensor, mask: torch.Tensor | None):
     return tensor * mask if mask else tensor
 
 
-def apply_mask_(tensor: torch.Tensor, mask: Optional[torch.Tensor]):
+def apply_mask_(tensor: torch.Tensor, mask: torch.Tensor | None):
     return tensor.mul_(mask) if mask else tensor
 
 
 class ResBlock(torch.nn.Module):
-    """
-    A residual block module that applies a series of 1D convolutional layers with residual connections.
-    """
+    """A residual block module that applies a series of 1D convolutional layers with residual connections."""
 
-    def __init__(self, channels: int, kernel_size: int = 3, dilations: Tuple[int] = (1, 3, 5)):
-        """
-        Initializes the ResBlock.
+    def __init__(self, channels: int, kernel_size: int = 3, dilations: tuple[int] = (1, 3, 5)):
+        """Initializes the ResBlock.
 
         Args:
             channels (int): Number of input and output channels for the convolution layers.
             kernel_size (int): Size of the convolution kernel. Defaults to 3.
             dilations (Tuple[int]): Tuple of dilation rates for the convolution layers in the first set.
+
         """
         super().__init__()
         # Create convolutional layers with specified dilations and initialize weights
@@ -52,14 +49,14 @@ class ResBlock(torch.nn.Module):
         self.convs2 = self._create_convs(channels, kernel_size, [1] * len(dilations))
 
     @staticmethod
-    def _create_convs(channels: int, kernel_size: int, dilations: Tuple[int]):
-        """
-        Creates a list of 1D convolutional layers with specified dilations.
+    def _create_convs(channels: int, kernel_size: int, dilations: tuple[int]):
+        """Creates a list of 1D convolutional layers with specified dilations.
 
         Args:
             channels (int): Number of input and output channels for the convolution layers.
             kernel_size (int): Size of the convolution kernel.
             dilations (Tuple[int]): Tuple of dilation rates for each convolution layer.
+
         """
         layers = torch.nn.ModuleList([create_conv1d_layer(channels, kernel_size, d) for d in dilations])
         layers.apply(init_weights)
@@ -82,8 +79,7 @@ class ResBlock(torch.nn.Module):
 
 
 class Flip(torch.nn.Module):
-    """
-    Flip module for flow-based models.
+    """Flip module for flow-based models.
 
     This module flips the input along the time dimension.
     """
@@ -93,13 +89,11 @@ class Flip(torch.nn.Module):
         if not reverse:
             logdet = torch.zeros(x.size(0), dtype=x.dtype, device=x.device)
             return x, logdet
-        else:
-            return x
+        return x
 
 
 class ResidualCouplingBlock(torch.nn.Module):
-    """
-    Residual Coupling Block for normalizing flow.
+    """Residual Coupling Block for normalizing flow.
 
     Args:
         channels (int): Number of channels in the input.
@@ -109,6 +103,7 @@ class ResidualCouplingBlock(torch.nn.Module):
         n_layers (int): Number of layers in the coupling layer.
         n_flows (int, optional): Number of coupling layers in the block. Defaults to 4.
         gin_channels (int, optional): Number of channels for the global conditioning input. Defaults to 0.
+
     """
 
     def __init__(
@@ -141,7 +136,7 @@ class ResidualCouplingBlock(torch.nn.Module):
                     n_layers,
                     gin_channels=gin_channels,
                     mean_only=True,
-                )
+                ),
             )
             self.flows.append(Flip())
 
@@ -149,7 +144,7 @@ class ResidualCouplingBlock(torch.nn.Module):
         self,
         x: torch.Tensor,
         x_mask: torch.Tensor,
-        g: Optional[torch.Tensor] = None,
+        g: torch.Tensor | None = None,
         reverse: bool = False,
     ):
         if not reverse:
@@ -174,8 +169,7 @@ class ResidualCouplingBlock(torch.nn.Module):
 
 
 class ResidualCouplingLayer(torch.nn.Module):
-    """
-    Residual coupling layer for flow-based models.
+    """Residual coupling layer for flow-based models.
 
     Args:
         channels (int): Number of channels.
@@ -186,6 +180,7 @@ class ResidualCouplingLayer(torch.nn.Module):
         p_dropout (float, optional): Dropout probability. Defaults to 0.
         gin_channels (int, optional): Number of conditioning channels. Defaults to 0.
         mean_only (bool, optional): Whether to use mean-only coupling. Defaults to False.
+
     """
 
     def __init__(
@@ -226,7 +221,7 @@ class ResidualCouplingLayer(torch.nn.Module):
         self,
         x: torch.Tensor,
         x_mask: torch.Tensor,
-        g: Optional[torch.Tensor] = None,
+        g: torch.Tensor | None = None,
         reverse: bool = False,
     ):
         x0, x1 = torch.split(x, [self.half_channels] * 2, 1)
@@ -244,10 +239,9 @@ class ResidualCouplingLayer(torch.nn.Module):
             x = torch.cat([x0, x1], 1)
             logdet = torch.sum(logs, [1, 2])
             return x, logdet
-        else:
-            x1 = (x1 - m) * torch.exp(-logs) * x_mask
-            x = torch.cat([x0, x1], 1)
-            return x
+        x1 = (x1 - m) * torch.exp(-logs) * x_mask
+        x = torch.cat([x0, x1], 1)
+        return x
 
     def remove_weight_norm(self):
         self.enc.remove_weight_norm()

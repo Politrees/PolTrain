@@ -74,8 +74,7 @@ def load_checkpoint(checkpoint_path, net_g, optim_g, net_d, optim_d):
 
 
 def extract_model(hps, ckpt, epoch, step, filepath, half=True):
-    """
-    Извлекает и сохраняет модель для инференса.
+    """Извлекает и сохраняет модель для инференса.
 
     Args:
         hps: Гиперпараметры модели.
@@ -88,8 +87,10 @@ def extract_model(hps, ckpt, epoch, step, filepath, half=True):
 
     Returns:
         Сообщение об успехе или ошибке.
+
     """
     try:
+
         def precision(value):
             return value.half() if half else value.float()
 

@@ -1,4 +1,3 @@
-from typing import List, Tuple
 import math
 
 import torch
@@ -16,13 +15,14 @@ class AdaBelief(Optimizer):
         eps: numerical stability (default: 1e-10)
         weight_decay: decoupled weight decay (default: 0)
         use_gc: enable Gradient Centralization (default: False)
+
     """
 
     def __init__(
         self,
         params,
         lr: float = 1e-4,
-        betas: Tuple[float, float] = (0.8, 0.99),
+        betas: tuple[float, float] = (0.8, 0.99),
         eps: float = 1e-10,
         weight_decay: float = 0.0,
         use_gc: bool = False,
@@ -66,10 +66,10 @@ class AdaBelief(Optimizer):
             weight_decay = group["weight_decay"]
             use_gc = group["use_gc"]
 
-            params_with_grad: List[Tensor] = []
-            grads: List[Tensor] = []
-            exp_avgs: List[Tensor] = []
-            exp_avg_vars: List[Tensor] = []
+            params_with_grad: list[Tensor] = []
+            grads: list[Tensor] = []
+            exp_avgs: list[Tensor] = []
+            exp_avg_vars: list[Tensor] = []
 
             for p in group["params"]:
                 if p.grad is None:
@@ -102,8 +102,8 @@ class AdaBelief(Optimizer):
             for p in params_with_grad[1:]:
                 self.state[p]["step"] = step
 
-            bias_correction1 = 1 - beta1 ** step
-            bias_correction2 = 1 - beta2 ** step
+            bias_correction1 = 1 - beta1**step
+            bias_correction2 = 1 - beta2**step
 
             if weight_decay != 0:
                 torch._foreach_mul_(params_with_grad, 1 - lr * weight_decay)
